@@ -275,21 +275,18 @@ class TestImplicit2DError:
             gen._gen_implicit_2d("shape", op)
 
 
-class TestAtPlacementFallback:
-    """Line 560: at placement with non-standard placement type."""
+class TestAtKwargFallback:
+    """at: kwarg with single value should translate on X axis."""
 
-    def test_at_placement_fallback(self):
+    def test_at_kwarg_single_value(self):
         gen = OCPCodegen()
-        node = ast.AtPlacement(
-            shape=ast.Box(
-                width=ast.NumberLit(value=10),
-                height=ast.NumberLit(value=10),
-                depth=ast.NumberLit(value=10),
-            ),
-            placement=ast.NumberLit(value=5),
-        )
-        result = gen._gen_at_placement(node)
-        assert '.box(10, 10, 10)' in result
+        result = gen._gen_at_kwarg("shape", ast.NumberLit(value=5))
+        assert '.translate((5, 0, 0))' in result
+
+    def test_at_kwarg_none(self):
+        gen = OCPCodegen()
+        result = gen._gen_at_kwarg("shape", None)
+        assert result == "shape"
 
 
 class TestTranslateTupleFallback:
@@ -306,7 +303,7 @@ class TestListPlacementWith3DTuple:
     """Line 633: list placement with 3D tuples."""
 
     def test_at_list_3d_tuples(self):
-        code = compile_source("sphere 5 at [(0, 0, 0), (10, 0, 0)]")
+        code = compile_source("sphere 5 at:[(0, 0, 0), (10, 0, 0)]")
         assert '.translate(' in code
 
 

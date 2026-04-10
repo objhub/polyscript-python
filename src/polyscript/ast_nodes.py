@@ -129,17 +129,23 @@ class Box(Node):
     width: Node | None = None
     height: Node | None = None
     depth: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
 class Cylinder(Node):
     height: Node | None = None
     radius: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
 class Sphere(Node):
     radius: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
@@ -150,12 +156,16 @@ class Cone(Node):
     pnt: Node | None = None
     dir: Node | None = None
     angle: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
 class Torus(Node):
     r1: Node | None = None
     r2: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 # --- 2D Primitives ---
@@ -164,17 +174,23 @@ class Torus(Node):
 class Rect(Node):
     width: Node | None = None
     height: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
 class Circle(Node):
     radius: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass
 class Ellipse(Node):
     rx: Node | None = None
     ry: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
 
 
 @dataclass

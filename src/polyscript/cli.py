@@ -18,12 +18,6 @@ def main():
         "-o", "--output",
         help="Output file (.stl, .step, or .py). Default: ./<input>.stl",
     )
-    parser.add_argument(
-        "--dump-code",
-        action="store_true",
-        help="Print generated code to stdout",
-    )
-
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -41,11 +35,6 @@ def main():
 
     try:
         source_dir = input_path.parent
-
-        if args.dump_code:
-            code = compile_source(source, source_dir=source_dir)
-            print(code)
-            return
 
         if output_path.suffix == ".py":
             code = compile_source(source, source_dir=source_dir)

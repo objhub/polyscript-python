@@ -116,13 +116,11 @@ class TestConeCodegen:
 class TestTorusCodegen:
     def test_codegen_torus(self):
         code = _parse_and_gen("torus 10 3")
-        assert "makeTorus" in code
-        assert "10" in code
-        assert "3" in code
+        assert ".torus(10, 3)" in code
 
     def test_codegen_torus_in_pipeline(self):
         code = _parse_and_gen('torus 10 3 | rotate 0 0 45')
-        assert "makeTorus" in code
+        assert ".torus(10, 3)" in code
         assert ".rotate" in code
 
 

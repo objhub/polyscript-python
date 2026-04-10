@@ -27,15 +27,6 @@ class TestCLIBasic:
         captured = capsys.readouterr()
         assert "Error: file not found" in captured.err
 
-    def test_dump_code(self, tmp_path, capsys):
-        """--dump-code should print generated code to stdout."""
-        src = tmp_path / "test.poly"
-        src.write_text("box 10 10 10")
-        with patch("sys.argv", ["poly", str(src), "--dump-code"]):
-            main()
-        captured = capsys.readouterr()
-        assert "box(10, 10, 10)" in captured.out
-
     def test_output_py(self, tmp_path, capsys):
         """Output to .py should write generated code."""
         src = tmp_path / "test.poly"

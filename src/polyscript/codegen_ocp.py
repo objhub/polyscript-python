@@ -217,7 +217,6 @@ class OCPCodegen:
         ast.Diff:          "_gen_diff_source",
         ast.Inter:         "_gen_inter_source",
         ast.FuncCall:      "_gen_func_call",
-        ast.AtPlacement:   "_gen_at_placement",
         ast.LinePath:      "_gen_line_path",
         ast.ArcPath:       "_gen_arc_path",
         ast.HelixPath:     "_gen_helix_path",
@@ -438,22 +437,52 @@ class OCPCodegen:
         else:
             raise CodegenError(f"Unknown pipe operation: {type(op).__name__}")
 
+    # --- Center kwarg helper ---
+
+    def _gen_centered_arg(self, center_node: ast.Node | None, ndim: int = 3) -> str:
+        """Generate the centered argument string for primitives.
+
+        Returns empty string if center is None (default centered=True).
+        For BoolConst, returns the appropriate tuple.
+        For TupleLit, generates per-axis values.
+        """
+        if center_node is None:
+            return ""
+        if isinstance(center_node, ast.BoolConst):
+            if ndim == 3:
+                val = "True" if center_node.value else "False"
+                return f", centered=({val}, {val}, {val})"
+            else:
+                val = "True" if center_node.value else "False"
+                return f", centered=({val}, {val})"
+        if isinstance(center_node, ast.TupleLit):
+            vals = [self._gen_expr(v) for v in center_node.values]
+            return f", centered=({', '.join(vals)})"
+        # Expression (e.g. variable): evaluate at runtime
+        return f", centered={self._gen_expr(center_node)}"
+
     # --- 3D Primitives ---
 
     def _gen_box(self, node: ast.Box) -> str:
         w = self._gen_expr(node.width)
         h = self._gen_expr(node.height)
         d = self._gen_expr(node.depth)
-        return f'cq.Workplane("XY").box({w}, {h}, {d})'
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").box({w}, {h}, {d}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_cylinder(self, node: ast.Cylinder) -> str:
         h = self._gen_expr(node.height)
         r = self._gen_expr(node.radius)
-        return f'cq.Workplane("XY").cylinder({h}, {r})'
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").cylinder({h}, {r}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_sphere(self, node: ast.Sphere) -> str:
         r = self._gen_expr(node.radius)
-        return f'cq.Workplane("XY").sphere({r})'
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").sphere({r}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_cone(self, node: ast.Cone) -> str:
         h = self._gen_expr(node.height)
@@ -466,28 +495,38 @@ class OCPCodegen:
             extras += f", dir={self._gen_expr(node.dir)}"
         if node.angle:
             extras += f", angle={self._gen_expr(node.angle)}"
-        return f'cq.Workplane("XY").cone({h}, {r1}, {r2}{extras})'
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").cone({h}, {r1}, {r2}{extras}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_torus(self, node: ast.Torus) -> str:
         r1 = self._gen_expr(node.r1)
         r2 = self._gen_expr(node.r2)
-        return f'cq.Workplane("XY").add(cq.Solid.makeTorus({r1}, {r2}))'
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").torus({r1}, {r2}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     # --- 2D Primitives ---
 
     def _gen_rect(self, node: ast.Rect) -> str:
         w = self._gen_expr(node.width)
         h = self._gen_expr(node.height)
-        return f'cq.Workplane("XY").rect({w}, {h})'
+        centered = self._gen_centered_arg(node.center, ndim=2)
+        code = f'cq.Workplane("XY").rect({w}, {h}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_circle(self, node: ast.Circle) -> str:
         r = self._gen_expr(node.radius)
-        return f'cq.Workplane("XY").circle({r})'
+        centered = self._gen_centered_arg(node.center, ndim=2)
+        code = f'cq.Workplane("XY").circle({r}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_ellipse(self, node: ast.Ellipse) -> str:
         rx = self._gen_expr(node.rx)
         ry = self._gen_expr(node.ry)
-        return f'cq.Workplane("XY").ellipse({rx}, {ry})'
+        centered = self._gen_centered_arg(node.center, ndim=2)
+        code = f'cq.Workplane("XY").ellipse({rx}, {ry}{centered})'
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_polyline(self, node: ast.Polyline) -> str:
         pts = self._gen_expr(node.points)
@@ -910,14 +949,17 @@ class OCPCodegen:
         if isinstance(prim, ast.Rect):
             w = self._gen_expr(prim.width)
             h = self._gen_expr(prim.height)
-            return f'{current}.rect({w}, {h})'
+            centered = self._gen_centered_arg(prim.center, ndim=2)
+            return f'{current}.rect({w}, {h}{centered})'
         elif isinstance(prim, ast.Circle):
             r = self._gen_expr(prim.radius)
-            return f'{current}.circle({r})'
+            centered = self._gen_centered_arg(prim.center, ndim=2)
+            return f'{current}.circle({r}{centered})'
         elif isinstance(prim, ast.Ellipse):
             rx = self._gen_expr(prim.rx)
             ry = self._gen_expr(prim.ry)
-            return f'{current}.ellipse({rx}, {ry})'
+            centered = self._gen_centered_arg(prim.center, ndim=2)
+            return f'{current}.ellipse({rx}, {ry}{centered})'
         elif isinstance(prim, ast.Polyline):
             pts = self._gen_expr(prim.points)
             return f'{current}.polyline({pts}).close()'
@@ -938,23 +980,28 @@ class OCPCodegen:
             w = self._gen_expr(prim.width)
             h = self._gen_expr(prim.height)
             d = self._gen_expr(prim.depth)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").box({w}, {h}, {d}))'
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").box({w}, {h}, {d}{centered}))'
         elif isinstance(prim, ast.Cylinder):
             ht = self._gen_expr(prim.height)
             r = self._gen_expr(prim.radius)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cylinder({ht}, {r}))'
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cylinder({ht}, {r}{centered}))'
         elif isinstance(prim, ast.Sphere):
             r = self._gen_expr(prim.radius)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").sphere({r}))'
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").sphere({r}{centered}))'
         elif isinstance(prim, ast.Cone):
             ht = self._gen_expr(prim.height)
             r1 = self._gen_expr(prim.r1)
             r2 = self._gen_expr(prim.r2)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cone({ht}, {r1}, {r2}))'
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cone({ht}, {r1}, {r2}{centered}))'
         elif isinstance(prim, ast.Torus):
             r1 = self._gen_expr(prim.r1)
             r2 = self._gen_expr(prim.r2)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").add(cq.Solid.makeTorus({r1}, {r2})))'
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").torus({r1}, {r2}{centered}))'
         else:
             raise CodegenError(f"Cannot use {type(prim).__name__} as implicit 3D in pipe")
 
@@ -1001,28 +1048,36 @@ class OCPCodegen:
         elif name in _MATH_FUNCS:
             name = f"math.{name}"
         args = ", ".join(self._gen_expr(a) for a in node.args)
-        kwargs = ", ".join(f"{k}={self._gen_expr(v)}" for k, v in node.kwargs.items())
+        # Extract at: for post-call placement
+        at_node = node.kwargs.get("at")
+        func_kwargs = {k: v for k, v in node.kwargs.items() if k != "at"}
+        kwargs = ", ".join(f"{k}={self._gen_expr(v)}" for k, v in func_kwargs.items())
         all_args = ", ".join(filter(None, [args, kwargs]))
-        return f"{name}({all_args})"
+        code = f"{name}({all_args})"
+        if at_node is not None:
+            # Runtime guard: only apply at: if result is a shape (has .translate)
+            var = self._new_var()
+            self._emit(f'{var} = {code}')
+            placed = self._gen_at_kwarg(var, at_node)
+            if placed != var:
+                return f'({placed} if hasattr({var}, "translate") else {var})'
+            return var
+        return code
 
     # --- At Placement ---
 
-    def _gen_at_placement(self, node: ast.AtPlacement) -> str:
-        shape_code = self._gen_expr(node.shape)
-        placement = node.placement
-
-        if isinstance(placement, (ast.Polar, ast.Grid)):
-            kind = "polar" if isinstance(placement, ast.Polar) else "grid"
-            raise CodegenError(
-                f"'{kind}' is no longer supported as a placement. "
-                f"Use pipe syntax instead: ... | {kind} ..."
-            )
-        if isinstance(placement, ast.TupleLit):
-            return self._gen_translate_tuple(shape_code, placement)
-        elif isinstance(placement, ast.ListLit):
-            return self._gen_list_placement(shape_code, placement)
-        else:
+    def _gen_at_kwarg(self, shape_code: str, at_node: ast.Node | None) -> str:
+        """Apply at: kwarg translation if present."""
+        if at_node is None:
             return shape_code
+        if isinstance(at_node, ast.TupleLit):
+            return self._gen_translate_tuple(shape_code, at_node)
+        elif isinstance(at_node, ast.ListLit):
+            return self._gen_list_placement(shape_code, at_node)
+        else:
+            # Single value — treat as x offset
+            val = self._gen_expr(at_node)
+            return f'{shape_code}.translate(({val}, 0, 0))'
 
     def _gen_translate_tuple(self, shape_code: str, tup: ast.TupleLit) -> str:
         vals = [self._gen_expr(v) for v in tup.values]

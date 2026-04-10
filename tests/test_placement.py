@@ -6,22 +6,32 @@ from polyscript.executor import compile_source
 
 class TestAtPlacement:
     def test_at_tuple(self):
-        code = compile_source("sphere 5 at (20, 0, 0)")
+        code = compile_source("sphere 5 at:(20, 0, 0)")
         assert '.translate((20, 0, 0))' in code
 
     def test_at_tuple_2d(self):
-        code = compile_source("sphere 5 at (20, 0)")
+        code = compile_source("sphere 5 at:(20, 0)")
         assert '.translate((20, 0, 0))' in code
 
     def test_at_list(self):
-        code = compile_source("sphere 5 at [(0, 0), (10, 0), (20, 0)]")
+        code = compile_source("sphere 5 at:[(0, 0), (10, 0), (20, 0)]")
         assert '.translate(' in code
         assert '.union(' in code
 
     def test_diff_at(self):
-        code = compile_source("box 50 50 10 | diff cylinder 10 3 at (15, 15, 0)")
+        code = compile_source("box 50 50 10 | diff cylinder 10 3 at:(15, 15, 0)")
         assert '.cut(' in code
         assert '.translate((15, 15, 0))' in code
+
+    def test_at_bare_values(self):
+        """at:20 10 should work with greedy collection."""
+        code = compile_source("cylinder 5 20 at:30 0")
+        assert '.translate((30, 0, 0))' in code
+
+    def test_at_bare_3d(self):
+        """at:15 15 20 should work with greedy collection."""
+        code = compile_source("box 10 10 3 at:15 15 20")
+        assert '.translate((15, 15, 20))' in code
 
 
 class TestPipeGridPolar:
@@ -60,63 +70,38 @@ class TestPipeGridPolar:
         assert '.grid(2, 2, 20)' in code
         assert 'translate' in code
 
-    def test_at_grid_no_longer_parses(self):
-        """at grid should no longer be valid syntax."""
-        with pytest.raises(Exception):
-            compile_source("box 10 10 1 at grid 4 3 20")
-
-    def test_at_paren_grid_no_longer_parses(self):
-        """at (grid ...) should no longer be valid syntax."""
-        with pytest.raises(Exception):
-            compile_source("box 10 10 1 at (grid 4 3 20)")
-
-    def test_at_polar_no_longer_parses(self):
-        """at polar should no longer be valid syntax."""
-        with pytest.raises(Exception):
-            compile_source("cylinder 10 5 at polar 6 15")
-
-    def test_at_paren_polar_no_longer_parses(self):
-        """at (polar ...) should no longer be valid syntax."""
-        with pytest.raises(Exception):
-            compile_source("sphere 5 at (polar 6 20)")
 
 
-class TestBarePlacement:
-    """Tests for bare (parenthesis-free) at placement syntax."""
+class TestAtKwarg:
+    """Tests for at: named argument syntax."""
 
-    def test_bare_2d_numeric(self):
-        """at 15 15 should produce the same result as at (15, 15)."""
-        bare = compile_source("sphere 5 at 15 15")
-        paren = compile_source("sphere 5 at (15, 15)")
+    def test_at_bare_2d_equals_paren(self):
+        """at:15 15 should produce the same result as at:(15, 15)."""
+        bare = compile_source("sphere 5 at:15 15")
+        paren = compile_source("sphere 5 at:(15, 15)")
         assert bare == paren
 
-    def test_bare_3d_numeric(self):
-        """at 15 15 20 should produce the same result as at (15, 15, 20)."""
-        bare = compile_source("sphere 5 at 15 15 20")
-        paren = compile_source("sphere 5 at (15, 15, 20)")
+    def test_at_bare_3d_equals_paren(self):
+        """at:15 15 20 should produce the same result as at:(15, 15, 20)."""
+        bare = compile_source("sphere 5 at:15 15 20")
+        paren = compile_source("sphere 5 at:(15, 15, 20)")
         assert bare == paren
 
-    def test_bare_variable_refs(self):
-        """at $x $y should work with variable references."""
-        code = compile_source("$x = 10\n$y = 20\nsphere 5 at $x $y")
+    def test_at_variable_refs(self):
+        """at:$x $y should work with variable references."""
+        code = compile_source("$x = 10\n$y = 20\nsphere 5 at:$x $y")
         assert '.translate(' in code
 
-    def test_bare_arithmetic(self):
-        """at $x+1 $y+1 should work with arithmetic expressions."""
-        code = compile_source("$x = 10\n$y = 20\nsphere 5 at $x+1 $y+1")
-        assert '.translate(' in code
-        assert '+ 1' in code or '+1' in code or '(x + 1' in code
-
-    def test_bare_with_pipe(self):
-        """box 10 10 3 at 15 15 | fillet 2 should parse correctly."""
-        code = compile_source("box 10 10 3 at 15 15 | fillet 2")
+    def test_at_with_pipe(self):
+        """box 10 10 3 at:15 15 | fillet 2 should parse correctly."""
+        code = compile_source("box 10 10 3 at:15 15 | fillet 2")
         assert '.translate((15, 15, 0))' in code
         assert '.fillet(2)' in code
 
-    def test_paren_backward_compat(self):
-        """Parenthesized at (15, 15) should still work."""
-        code = compile_source("sphere 5 at (15, 15)")
-        assert '.translate((15, 0, 0))' in code or '.translate((15, 15, 0))' in code
+    def test_at_paren_tuple(self):
+        """Parenthesized at:(15, 15) should work."""
+        code = compile_source("sphere 5 at:(15, 15)")
+        assert '.translate((15, 15, 0))' in code
 
 
 class TestUnionSource:

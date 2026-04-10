@@ -60,26 +60,6 @@ class PolyTransformer(LarkTransformer):
     def source_expr(self, items):
         return items[0]
 
-    def atom_with_at(self, items):
-        if len(items) == 1:
-            return items[0]
-        shape = items[0]
-        placement = items[1]
-        return ast.AtPlacement(shape=shape, placement=placement)
-
-    def placement_product(self, items):
-        """Unwrap non-transparent placement_product node."""
-        return items[0]
-
-    def placement_unary(self, items):
-        """Unwrap non-transparent placement_unary node."""
-        return items[0]
-
-    def bare_placement(self, items):
-        # Single bracket_expr [(...), ...] should be treated as list placement
-        if len(items) == 1 and isinstance(items[0], ast.ListLit):
-            return items[0]
-        return ast.TupleLit(values=list(items))
 
     def var_ref(self, items):
         return ast.VarRef(name=str(items[0]))
@@ -95,6 +75,8 @@ class PolyTransformer(LarkTransformer):
             width=args[0] if len(args) > 0 else None,
             height=args[1] if len(args) > 1 else None,
             depth=args[2] if len(args) > 2 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     def cylinder(self, items):
@@ -102,11 +84,17 @@ class PolyTransformer(LarkTransformer):
         return ast.Cylinder(
             height=args[0] if len(args) > 0 else kwargs.get("h"),
             radius=args[1] if len(args) > 1 else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     def sphere(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.Sphere(radius=args[0] if args else kwargs.get("r"))
+        return ast.Sphere(
+            radius=args[0] if args else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
+        )
 
     def cone(self, items):
         args, kwargs = self._split_args(items[0])
@@ -117,6 +105,8 @@ class PolyTransformer(LarkTransformer):
             pnt=kwargs.get("pnt"),
             dir=kwargs.get("dir"),
             angle=kwargs.get("angle"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     def torus(self, items):
@@ -124,6 +114,8 @@ class PolyTransformer(LarkTransformer):
         return ast.Torus(
             r1=args[0] if len(args) > 0 else kwargs.get("r1"),
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     # --- 2D Primitives ---
@@ -133,17 +125,25 @@ class PolyTransformer(LarkTransformer):
         return ast.Rect(
             width=args[0] if len(args) > 0 else None,
             height=args[1] if len(args) > 1 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     def circle(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.Circle(radius=args[0] if args else kwargs.get("r"))
+        return ast.Circle(
+            radius=args[0] if args else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
+        )
 
     def ellipse(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Ellipse(
             rx=args[0] if len(args) > 0 else None,
             ry=args[1] if len(args) > 1 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         )
 
     def polyline_prim(self, items):
@@ -425,12 +425,16 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit2DPrimitive(primitive=ast.Rect(
             width=args[0] if len(args) > 0 else None,
             height=args[1] if len(args) > 1 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_circle(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit2DPrimitive(primitive=ast.Circle(
             radius=args[0] if args else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_ellipse(self, items):
@@ -438,6 +442,8 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit2DPrimitive(primitive=ast.Ellipse(
             rx=args[0] if len(args) > 0 else None,
             ry=args[1] if len(args) > 1 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_polyline(self, items):
@@ -468,6 +474,8 @@ class PolyTransformer(LarkTransformer):
             width=args[0] if len(args) > 0 else None,
             height=args[1] if len(args) > 1 else None,
             depth=args[2] if len(args) > 2 else None,
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_cylinder(self, items):
@@ -475,12 +483,16 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit3DPrimitive(primitive=ast.Cylinder(
             height=args[0] if len(args) > 0 else kwargs.get("h"),
             radius=args[1] if len(args) > 1 else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_sphere(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit3DPrimitive(primitive=ast.Sphere(
             radius=args[0] if args else kwargs.get("r"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_cone(self, items):
@@ -492,6 +504,8 @@ class PolyTransformer(LarkTransformer):
             pnt=kwargs.get("pnt"),
             dir=kwargs.get("dir"),
             angle=kwargs.get("angle"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_torus(self, items):
@@ -499,6 +513,8 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit3DPrimitive(primitive=ast.Torus(
             r1=args[0] if len(args) > 0 else kwargs.get("r1"),
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
         ))
 
     # --- Bracket expressions (unified group / list) ---
@@ -656,19 +672,46 @@ class PolyTransformer(LarkTransformer):
 
     @staticmethod
     def _split_args(args_list):
-        """Split a list of ('pos', val) and ('kw', name, val) tuples."""
+        """Split a list of ('pos', val) and ('kw', name, val) tuples.
+
+        Implements greedy kwarg collection: positional args that appear after
+        a kwarg are merged into that kwarg's value as a TupleLit.
+        For example, ``center:false true false`` produces
+        ``{center: TupleLit([false, true, false])}``.
+        """
         positional = []
         keyword = {}
         if not args_list:
             return positional, keyword
+        last_kw_name = None
         for item in args_list:
             if isinstance(item, tuple):
                 if item[0] == "pos":
-                    positional.append(item[1])
+                    if last_kw_name is not None:
+                        # Merge into preceding kwarg
+                        prev = keyword[last_kw_name]
+                        if isinstance(prev, ast.TupleLit):
+                            prev.values.append(item[1])
+                        else:
+                            keyword[last_kw_name] = ast.TupleLit(
+                                values=[prev, item[1]]
+                            )
+                    else:
+                        positional.append(item[1])
                 elif item[0] == "kw":
                     keyword[item[1]] = item[2]
+                    last_kw_name = item[1]
             else:
-                positional.append(item)
+                if last_kw_name is not None:
+                    prev = keyword[last_kw_name]
+                    if isinstance(prev, ast.TupleLit):
+                        prev.values.append(item)
+                    else:
+                        keyword[last_kw_name] = ast.TupleLit(
+                            values=[prev, item]
+                        )
+                else:
+                    positional.append(item)
         return positional, keyword
 
 

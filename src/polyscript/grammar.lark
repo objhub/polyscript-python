@@ -49,22 +49,6 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 
 ?greedy_val: greedy_product
 
-// placement_val: like greedy_val but allows + and - (sum level).
-// Used only in bare_placement (at x+1 y+1).
-?placement_val: placement_sum
-?placement_sum: placement_product
-              | placement_sum "+" placement_product -> add
-              | placement_sum "-" placement_product -> sub
-placement_product: placement_unary
-                 | placement_product "*" unary -> mul
-                 | placement_product "/" unary -> div
-                 | placement_product "//" unary -> idiv
-                 | placement_product "%" unary -> mod
-placement_unary: placement_power
-               | "-" placement_unary -> neg
-?placement_power: greedy_atom
-                | greedy_atom "**" unary -> pow_expr
-
 // Greedy product: like product but atom level excludes "(" expr ")" and tuple.
 // Parenthesized expressions enter greedy args only via paren_arg.
 // This prevents sin(pi/6)*20 from being parsed as func_call("sin", [(pi/6)*20]).
@@ -132,10 +116,6 @@ placement_unary: placement_power
 
 as_clause: "as" "$" NAME
 
-?placement: tuple
-          | "(" expr ")"    -> paren_expr
-          | placement_val placement_val placement_val?  -> bare_placement
-          | placement_val                               -> bare_placement
 
 bracket_expr: "[" _bracket_body "]"
             | "[" _bracket_nl expr "for" "$"? NAME "in" "range" "(" expr ")" _bracket_nl "]" -> list_comp_expr
@@ -176,10 +156,8 @@ arg: NAME ":" expr    -> kwarg
         | product "%" unary  -> mod
 ?unary: power
       | "-" unary       -> neg
-?power: at_expr
-      | at_expr "**" unary -> pow_expr
-?at_expr: atom_expr "at" placement -> atom_with_at
-        | atom_expr
+?power: atom_expr
+      | atom_expr "**" unary -> pow_expr
 ?atom_expr: NUMBER          -> number
           | ESCAPED_STRING  -> string_lit
           | SELECTOR        -> selector_lit
@@ -231,7 +209,7 @@ tuple: "(" expr "," expr ("," expr)* ")"
 SELECTOR: /[><=+][XYZ]/
 
 // NAME excludes all keywords to prevent greedy-arg consumption of structural tokens
-NAME: /(?!(?:box|cylinder|sphere|cone|torus|rect|circle|ellipse|polyline|polygon|text|line|arc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|color|translate|rotate|scale|mirror|move|moveto|polar|grid|at|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
+NAME: /(?!(?:box|cylinder|sphere|cone|torus|rect|circle|ellipse|polyline|polygon|text|line|arc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
 _MOVE: /move(?!to\b)/
 
 %import common.NUMBER

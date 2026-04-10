@@ -45,13 +45,13 @@ class TestAtomWithAt:
         program = transform(tree)
         assert isinstance(program.statements[0], ast.Box)
 
-    def test_atom_with_at(self):
-        """Atom with @-placement should wrap in AtPlacement."""
-        tree = parse("sphere 5 at (10, 20)")
+    def test_at_kwarg(self):
+        """at: should be parsed as a named argument on the primitive."""
+        tree = parse("sphere 5 at:(10, 20)")
         program = transform(tree)
         stmt = program.statements[0]
-        assert isinstance(stmt, ast.AtPlacement)
-        assert isinstance(stmt.shape, ast.Sphere)
+        assert isinstance(stmt, ast.Sphere)
+        assert stmt.at is not None
 
 
 class TestStringRule:

@@ -562,35 +562,64 @@ class Workplane:
 
     # --- 3D Primitives ---
 
-    def box(self, w, h, d):
-        shape = BRepPrimAPI_MakeBox(gp_Pnt(-w/2, -h/2, -d/2), w, h, d).Shape()
+    def box(self, w, h, d, centered=(True, True, True)):
+        # MakeBox creates from origin (0,0,0) to (w,h,d)
+        shape = BRepPrimAPI_MakeBox(w, h, d).Shape()
+        # Translate to center on each axis where centered is True
+        tx = -w / 2 if centered[0] else 0
+        ty = -h / 2 if centered[1] else 0
+        tz = -d / 2 if centered[2] else 0
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def cylinder(self, h, r):
-        ax2 = gp_Ax2(gp_Pnt(0, 0, -h/2), gp_Dir(0, 0, 1))
+    def cylinder(self, h, r, centered=(True, True, True)):
+        # MakeCylinder creates at origin along Z, base at z=0
+        ax2 = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
         shape = BRepPrimAPI_MakeCylinder(ax2, r, h).Shape()
+        # centered=True: center on axis; False: bbox min at origin
+        tx = 0 if centered[0] else r
+        ty = 0 if centered[1] else r
+        tz = -h / 2 if centered[2] else 0
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def sphere(self, r):
+    def sphere(self, r, centered=(True, True, True)):
+        # MakeSphere creates centered at origin
         shape = BRepPrimAPI_MakeSphere(r).Shape()
+        tx = 0 if centered[0] else r
+        ty = 0 if centered[1] else r
+        tz = 0 if centered[2] else r
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def cone(self, h, r1, r2, pnt=None, dir=None, angle=None):
-        import math
+    def cone(self, h, r1, r2, pnt=None, dir=None, angle=None, centered=(True, True, True)):
         p = gp_Pnt(*(pnt if pnt else (0, 0, 0)))
         d = gp_Dir(*(dir if dir else (0, 0, 1)))
-        # Offset by -h/2 along the axis direction to center
-        offset = gp_Vec(d).Multiplied(-h / 2)
-        p.Translate(offset)
         ax2 = gp_Ax2(p, d)
         if angle is not None:
             shape = BRepPrimAPI_MakeCone(ax2, r1, r2, h, math.radians(angle)).Shape()
         else:
             shape = BRepPrimAPI_MakeCone(ax2, r1, r2, h).Shape()
+        # MakeCone creates base at z=0, apex at z=h
+        max_r = max(r1, r2)
+        tx = 0 if centered[0] else max_r
+        ty = 0 if centered[1] else max_r
+        tz = -h / 2 if centered[2] else 0
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def torus(self, r1, r2):
+    def torus(self, r1, r2, centered=(True, True, True)):
+        # MakeTorus creates centered at origin
         shape = BRepPrimAPI_MakeTorus(r1, r2).Shape()
+        tx = 0 if centered[0] else r1 + r2
+        ty = 0 if centered[1] else r1 + r2
+        tz = 0 if centered[2] else r2
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def place_3d_at_points(self, factory):
@@ -625,26 +654,45 @@ class Workplane:
     # --- 2D Primitives ---
 
     def rect(self, w, h, centered=True):
+        # centered can be True/False (both axes) or (bool, bool)
+        if isinstance(centered, (list, tuple)):
+            dx = 0 if centered[0] else w / 2
+            dy = 0 if centered[1] else h / 2
+        else:
+            dx = 0 if centered else w / 2
+            dy = 0 if centered else h / 2
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
-            wire = _make_rect_wire(w, h, self._plane, cx, cy)
+            wire = _make_rect_wire(w, h, self._plane, cx + dx, cy + dy)
             new_wires.append(wire)
         return self._copy(_wires=new_wires)
 
-    def circle(self, r):
+    def circle(self, r, centered=(True, True)):
+        if isinstance(centered, (list, tuple)):
+            dx = 0 if centered[0] else r
+            dy = 0 if centered[1] else r
+        else:
+            dx = 0 if centered else r
+            dy = 0 if centered else r
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
-            wire = _make_circle_wire(r, self._plane, cx, cy)
+            wire = _make_circle_wire(r, self._plane, cx + dx, cy + dy)
             new_wires.append(wire)
         return self._copy(_wires=new_wires)
 
-    def ellipse(self, rx, ry):
+    def ellipse(self, rx, ry, centered=(True, True)):
+        if isinstance(centered, (list, tuple)):
+            dx = 0 if centered[0] else rx
+            dy = 0 if centered[1] else ry
+        else:
+            dx = 0 if centered else rx
+            dy = 0 if centered else ry
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
-            wire = _make_ellipse_wire(rx, ry, self._plane, cx, cy)
+            wire = _make_ellipse_wire(rx, ry, self._plane, cx + dx, cy + dy)
             new_wires.append(wire)
         return self._copy(_wires=new_wires)
 

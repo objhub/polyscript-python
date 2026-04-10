@@ -50,7 +50,7 @@ class TestBoolean:
         assert '.intersect(' in code
 
     def test_diff_with_at(self):
-        code = compile_source("box 50 50 10 | diff cylinder 10 3 at (15, 15, 0)")
+        code = compile_source("box 50 50 10 | diff cylinder 10 3 at:(15, 15, 0)")
         assert '.cut(' in code
         assert '.translate(' in code
 
@@ -535,7 +535,7 @@ class TestImplicit3DPrimitive:
         code = compile_source("rect 100 100 | verts | torus 10 3")
         assert ".vertices()" in code
         assert "place_3d_at_points" in code
-        assert "makeTorus(10, 3)" in code
+        assert ".torus(10, 3)" in code
 
     def test_box_after_3d_verts(self):
         """box | verts | sphere should place spheres at box vertices."""

@@ -75,7 +75,7 @@ class TestPathPrimitives:
 class TestImplicitUnion:
     def test_multiple_toplevel_shapes(self):
         """Multiple top-level shapes are implicitly unioned."""
-        code = compile_source("box 10 10 10\ncylinder 5 20 at 30 0")
+        code = compile_source("box 10 10 10\ncylinder 5 20 at:30 0")
         assert '.union(' in code
 
     def test_single_toplevel_shape(self):

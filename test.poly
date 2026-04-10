@@ -1,4 +1,4 @@
-box 200 100 10
- | faces top
- | rect 14 14 | grid 2 2 20 | extrude 10
-
+box 80 60 10
+ | fillet 2
+ | diff cylinder 10 10
+ | faces top | offset -5 | verts | hole 2
