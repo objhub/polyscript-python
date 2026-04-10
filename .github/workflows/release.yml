@@ -35,7 +35,9 @@ jobs:
 
       - name: Verify binary
         shell: bash
-        run: dist/poly/poly --help
+        run: |
+          dist/poly/poly --help
+          dist/poly/poly test.poly -o test.stl
 
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
