@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: macos-13
+            platform: macos-x86_64
+          - os: macos-14
+            platform: macos-arm64
+          - os: windows-2022
+            platform: windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: python
+        run: uv sync --group bundle
+
+      - name: Build with PyInstaller
+        working-directory: python
+        run: uv run pyinstaller poly.spec --distpath dist/ --clean -y
+
+      - name: Verify binary
+        working-directory: python
+        shell: bash
+        run: dist/poly/poly --help
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        working-directory: python/dist
+        run: tar czf poly-${{ matrix.platform }}.tar.gz poly/
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        working-directory: python/dist
+        shell: pwsh
+        run: Compress-Archive -Path poly -DestinationPath poly-${{ matrix.platform }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poly-${{ matrix.platform }}
+          path: |
+            python/dist/poly-*.tar.gz
+            python/dist/poly-*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: poly-*
+          generate_release_notes: true

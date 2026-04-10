@@ -1,0 +1,247 @@
+// PolyScript Grammar — Greedy Parsing
+// Design: keyword arg arg ... | keyword arg arg ...
+// Boolean ops (diff/union/inter) take a single shape expression (greedy delegate)
+// Multiple shapes require []: diff [shape1, shape2]
+
+start: _sep_stmts
+_sep_stmts: _sep_stmts _NL _statement
+          | _sep_stmts _NL
+          | _statement
+          |
+
+_statement: import_stmt | func_def | assignment | pipeline_stmt
+
+import_stmt: "import" ESCAPED_STRING
+
+func_def: "def" NAME "(" params ")" "=" pipeline_stmt
+params: (func_param ("," func_param)*)?
+func_param: "$"? NAME
+
+assignment: "$"? NAME "=" pipeline_stmt
+
+pipeline_stmt: expr
+
+greedy_args: greedy_arg*
+greedy_arg: NAME ":" kwarg_val    -> kwarg
+          | tuple                 -> posarg
+          | "(" expr ")"         -> paren_arg
+          | greedy_val            -> posarg
+
+// func_greedy_arg: like greedy_arg but without tuple, paren_arg, and negation.
+// - No tuple/paren_arg: prevents NAME "(" ambiguity between func_call and func_call_expr.
+// - No negation: prevents "d - t" from being parsed as func_call(d, neg(t)).
+//   Negative args require parens: sin(-1) instead of sin -1.
+func_greedy_arg: NAME ":" kwarg_val  -> kwarg
+               | func_greedy_val     -> posarg
+
+// func_greedy_val: like greedy_val but no unary negation.
+// This prevents "NAME -expr" from being parsed as func_call with negative arg
+// instead of binary subtraction.
+?func_greedy_val: func_greedy_product
+?func_greedy_product: greedy_power
+                    | func_greedy_product "*" unary -> mul
+                    | func_greedy_product "/" unary -> div
+                    | func_greedy_product "//" unary -> idiv
+                    | func_greedy_product "%" unary -> mod
+
+?kwarg_val: greedy_val
+          | tuple
+
+?greedy_val: greedy_product
+
+// placement_val: like greedy_val but allows + and - (sum level).
+// Used only in bare_placement (at x+1 y+1).
+?placement_val: placement_sum
+?placement_sum: placement_product
+              | placement_sum "+" placement_product -> add
+              | placement_sum "-" placement_product -> sub
+placement_product: placement_unary
+                 | placement_product "*" unary -> mul
+                 | placement_product "/" unary -> div
+                 | placement_product "//" unary -> idiv
+                 | placement_product "%" unary -> mod
+placement_unary: placement_power
+               | "-" placement_unary -> neg
+?placement_power: greedy_atom
+                | greedy_atom "**" unary -> pow_expr
+
+// Greedy product: like product but atom level excludes "(" expr ")" and tuple.
+// Parenthesized expressions enter greedy args only via paren_arg.
+// This prevents sin(pi/6)*20 from being parsed as func_call("sin", [(pi/6)*20]).
+?greedy_product: greedy_unary
+               | greedy_product "*" unary -> mul
+               | greedy_product "/" unary -> div
+               | greedy_product "//" unary -> idiv
+               | greedy_product "%" unary -> mod
+?greedy_unary: greedy_power
+             | "-" greedy_unary -> neg
+?greedy_power: greedy_atom
+             | greedy_atom "**" unary -> pow_expr
+?greedy_atom: NUMBER          -> number
+            | ESCAPED_STRING  -> string_lit
+            | SELECTOR        -> selector_lit
+            | "$" NAME        -> dollar_var_ref
+            | "pi"            -> pi_const
+            | "true"          -> true_const
+            | "false"         -> false_const
+            | NAME            -> var_ref
+            | bracket_expr
+
+?pipe_op: "faces" greedy_args as_clause?     -> faces_select
+        | "edges" greedy_args as_clause?     -> edges_select
+        | "verts" greedy_args as_clause?     -> verts_select
+        | "points" "polar" greedy_args       -> points_polar
+        | "points" "grid" greedy_args        -> points_grid
+        | "points" greedy_args               -> points_select
+        | "workplane" greedy_args            -> workplane_op
+        | "as" "$" NAME                      -> as_tag
+        | "fillet" greedy_args               -> fillet
+        | "chamfer" greedy_args              -> chamfer
+        | "shell" greedy_args                -> shell_op
+        | "offset" greedy_args               -> offset_op
+        | "diff" if_expr                       -> diff
+        | "union" if_expr                      -> union_op
+        | "inter" if_expr                      -> inter
+        | "place" if_expr                      -> place_op
+        | "hole" greedy_args                 -> hole
+        | "cut" greedy_args                  -> cut
+        | "extrude" greedy_args              -> extrude
+        | "revolve" greedy_args              -> revolve
+        | "sweep" greedy_args                -> sweep
+        | "loft" greedy_args                 -> loft
+        | "color" greedy_args                -> color_op
+        | "translate" greedy_args            -> translate_op
+        | "rotate" greedy_args               -> rotate_op
+        | "scale" greedy_args                -> scale_op
+        | "mirror" greedy_args               -> mirror_op
+        | "moveto" greedy_args               -> moveto_op
+        | _MOVE greedy_args                  -> move_op
+        | "rect" greedy_args                 -> pipe_rect
+        | "circle" greedy_args               -> pipe_circle
+        | "ellipse" greedy_args              -> pipe_ellipse
+        | "polyline" greedy_args             -> pipe_polyline
+        | "polygon" greedy_args              -> pipe_polygon
+        | "text" greedy_args                 -> pipe_text
+        | "box" greedy_args                   -> pipe_box
+        | "cylinder" greedy_args             -> pipe_cylinder
+        | "sphere" greedy_args               -> pipe_sphere
+        | "cone" greedy_args                 -> pipe_cone
+        | "torus" greedy_args                -> pipe_torus
+        | "grid" greedy_args                 -> pipe_grid
+        | "polar" greedy_args                -> pipe_polar
+
+as_clause: "as" "$" NAME
+
+?placement: tuple
+          | "(" expr ")"    -> paren_expr
+          | placement_val placement_val placement_val?  -> bare_placement
+          | placement_val                               -> bare_placement
+
+bracket_expr: "[" _bracket_body "]"
+            | "[" _bracket_nl expr "for" "$"? NAME "in" "range" "(" expr ")" _bracket_nl "]" -> list_comp_expr
+_bracket_body: _bracket_nl
+             | _bracket_nl bracket_items _bracket_nl
+bracket_items: bracket_items "," _bracket_nl expr
+             | bracket_items _NL expr
+             | expr
+_bracket_nl: _bracket_nl _NL
+           |
+
+args: (arg ("," arg)*)? ","?
+arg: NAME ":" expr    -> kwarg
+   | expr             -> posarg
+
+?expr: if_expr ("|" pipe_op)+  -> piped_expr
+     | if_expr
+?if_expr: or_expr
+        | "if" or_expr "then" if_expr "else" if_expr
+?or_expr: and_expr
+        | or_expr "or" and_expr    -> or_op
+?and_expr: comparison
+         | and_expr "and" comparison -> and_op
+?comparison: sum
+           | comparison "==" sum -> eq
+           | comparison "!=" sum -> neq
+           | comparison "<" sum  -> lt
+           | comparison ">" sum  -> gt
+           | comparison "<=" sum -> lte
+           | comparison ">=" sum -> gte
+?sum: product
+    | sum "+" product   -> add
+    | sum "-" product   -> sub
+?product: unary
+        | product "*" unary -> mul
+        | product "/" unary -> div
+        | product "//" unary -> idiv
+        | product "%" unary  -> mod
+?unary: power
+      | "-" unary       -> neg
+?power: at_expr
+      | at_expr "**" unary -> pow_expr
+?at_expr: atom_expr "at" placement -> atom_with_at
+        | atom_expr
+?atom_expr: NUMBER          -> number
+          | ESCAPED_STRING  -> string_lit
+          | SELECTOR        -> selector_lit
+          | "$" NAME        -> dollar_var_ref
+          | "pi"            -> pi_const
+          | "true"          -> true_const
+          | "false"         -> false_const
+          | NAME "(" args ")" -> func_call_expr
+          | NAME func_greedy_arg+  -> func_call
+          | NAME            -> var_ref
+          | "(" expr ")"
+          | tuple
+          | bracket_expr
+          | "box" greedy_args          -> box
+          | "cylinder" greedy_args     -> cylinder
+          | "sphere" greedy_args       -> sphere
+          | "cone" greedy_args         -> cone
+          | "torus" greedy_args        -> torus
+          | "rect" greedy_args         -> rect
+          | "circle" greedy_args       -> circle
+          | "ellipse" greedy_args      -> ellipse
+          | "polyline" greedy_args     -> polyline_prim
+          | "polygon" greedy_args      -> polygon_prim
+          | "text" greedy_args         -> text_prim
+          | "line" greedy_args         -> line_path
+          | "arc" greedy_args          -> arc_path
+          | "bezier" greedy_args       -> bezier_path
+          | "helix" greedy_args        -> helix_path
+          | "spline" greedy_args       -> spline_path
+          | "polar" greedy_args        -> polar_spec
+          | "grid" greedy_args         -> grid_spec
+          | "sketch" "[" _bracket_nl sketch_start ("," _bracket_nl sketch_segment)* ","? _bracket_nl "]" -> sketch_expr
+          | "union" bracket_expr     -> union_source
+          | "diff" bracket_expr      -> diff_source
+          | "inter" bracket_expr     -> inter_source
+
+sketch_start: tuple
+sketch_segment: "arc" tuple tuple    -> sketch_arc
+              | "bezier" greedy_args  -> sketch_bezier
+              | tuple                 -> sketch_line
+
+tuple: "(" expr "," expr ("," expr)* ")"
+
+// list_lit, group, and list_comp are now unified as bracket_expr above
+
+// Selector tokens: symbol+axis (>Z, <X, =Y, +Z) — no space between symbol and axis.
+// Name aliases (top, bottom, right, left, front, back) are parsed as NAME
+// and resolved to selectors in the transformer.
+SELECTOR: /[><=+][XYZ]/
+
+// NAME excludes all keywords to prevent greedy-arg consumption of structural tokens
+NAME: /(?!(?:box|cylinder|sphere|cone|torus|rect|circle|ellipse|polyline|polygon|text|line|arc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|color|translate|rotate|scale|mirror|move|moveto|polar|grid|at|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
+_MOVE: /move(?!to\b)/
+
+%import common.NUMBER
+%import common.ESCAPED_STRING
+%import common.WS_INLINE
+
+_NL: /\s*/ NEWLINE /\s*/
+NEWLINE: /\r?\n/
+
+COMMENT: "#" /[^\n]*/
+
+%ignore WS_INLINE
+%ignore COMMENT

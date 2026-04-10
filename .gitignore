@@ -1,0 +1,4 @@
+*.local.md
+*.stl
+__pycache__
+.coverage
