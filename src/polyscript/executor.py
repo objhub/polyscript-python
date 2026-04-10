@@ -135,6 +135,7 @@ def execute(
         "round": round,
         "int": int,
         "float": float,
+        "hasattr": hasattr,
         "None": None,
         "True": True,
         "False": False,
