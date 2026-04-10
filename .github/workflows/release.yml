@@ -30,26 +30,23 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        working-directory: python
         run: uv sync --group bundle
 
       - name: Build with PyInstaller
-        working-directory: python
         run: uv run pyinstaller poly.spec --distpath dist/ --clean -y
 
       - name: Verify binary
-        working-directory: python
         shell: bash
         run: dist/poly/poly --help
 
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
-        working-directory: python/dist
+        working-directory: dist
         run: tar czf poly-${{ matrix.platform }}.tar.gz poly/
 
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
-        working-directory: python/dist
+        working-directory: dist
         shell: pwsh
         run: Compress-Archive -Path poly -DestinationPath poly-${{ matrix.platform }}.zip
 
@@ -58,8 +55,8 @@ jobs:
         with:
           name: poly-${{ matrix.platform }}
           path: |
-            python/dist/poly-*.tar.gz
-            python/dist/poly-*.zip
+            dist/poly-*.tar.gz
+            dist/poly-*.zip
 
   release:
     needs: build
