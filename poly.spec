@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for PolyScript CLI (onedir mode)."""
 
+import sys
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+
+is_win = sys.platform == 'win32'
 
 block_cipher = None
 
@@ -69,7 +72,7 @@ exe = EXE(
     name='poly',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=not is_win,
     upx=False,
     console=True,
 )
@@ -78,7 +81,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,
+    strip=not is_win,
     upx=False,
     name='poly',
 )
