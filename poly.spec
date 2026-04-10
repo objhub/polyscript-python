@@ -25,7 +25,7 @@ ocp_modules = [
 ]
 
 a = Analysis(
-    ['poly_entry.py'],
+    ['src/polyscript/cli.py'],
     pathex=[],
     binaries=ocp_binaries + ocp_libs_binaries,
     datas=[
