@@ -777,9 +777,13 @@ class OCPCodegen:
     def _gen_loft(self, current: str, op: ast.Loft) -> str:
         sections = self._gen_expr(op.sections)
         args = [sections]
-        if op.height is not None:
-            args.append(self._gen_expr(op.height))
         kwargs = []
+        if op.height is not None:
+            h_code = self._gen_expr(op.height)
+            if isinstance(op.height, ast.ListLit):
+                kwargs.append(f'heights={h_code}')
+            else:
+                args.append(h_code)
         if op.ruled:
             kwargs.append('ruled=True')
         all_args = ', '.join(args + kwargs)

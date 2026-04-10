@@ -794,6 +794,8 @@ class Workplane:
             if kind == "line":
                 pt = seg[1]
                 end_3d = _to_3d(self._plane, pt[0] + cx, pt[1] + cy)
+                if current.Distance(end_3d) < 1e-6:
+                    continue  # skip zero-length edge
                 edge = BRepBuilderAPI_MakeEdge(current, end_3d).Edge()
                 builder.Add(edge)
                 current = end_3d
@@ -801,8 +803,17 @@ class Workplane:
                 through_2d, end_2d = seg[1], seg[2]
                 p_through = _to_3d(self._plane, through_2d[0] + cx, through_2d[1] + cy)
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
-                arc_curve = GC_MakeArcOfCircle(current, p_through, p_end).Value()
-                edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+                if current.Distance(p_end) < 1e-6:
+                    continue  # skip zero-length arc
+                # Check collinearity: if points are nearly collinear, fall back to line
+                v1 = gp_Vec(current, p_through)
+                v2 = gp_Vec(current, p_end)
+                cross_mag = v1.Crossed(v2).Magnitude()
+                if cross_mag < 1e-6:
+                    edge = BRepBuilderAPI_MakeEdge(current, p_end).Edge()
+                else:
+                    arc_curve = GC_MakeArcOfCircle(current, p_through, p_end).Value()
+                    edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
                 builder.Add(edge)
                 current = p_end
             elif kind == "bezier":
@@ -1338,7 +1349,11 @@ class Workplane:
             builder = BRepOffsetAPI_ThruSections(True, ruled)
             builder.AddWire(src_wire)
             for i in range(n):
-                w = section_wires_list[i][0]
+                section = section_wires_list[i]
+                if isinstance(section, Workplane):
+                    w = section._wires[0]
+                else:
+                    w = section[0]
                 d = offsets[i]
                 trsf = gp_Trsf()
                 trsf.SetTranslation(gp_Vec(
@@ -1580,7 +1595,7 @@ class Workplane:
         return self._copy(_shape=shape)
 
     def mirror(self, plane_name="YZ"):
-        """Mirror the shape across a plane.
+        """Mirror the shape across a plane and fuse with the original.
 
         plane_name: "YZ" (mirror across YZ, i.e. flip X),
                     "XZ" (flip Y), "XY" (flip Z).
@@ -1597,8 +1612,9 @@ class Workplane:
             trsf.SetMirror(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)))
         else:
             trsf.SetMirror(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)))
-        shape = BRepBuilderAPI_Transform(self._shape, trsf, True).Shape()
-        return self._copy(_shape=shape)
+        mirrored = BRepBuilderAPI_Transform(self._shape, trsf, True).Shape()
+        fused = BRepAlgoAPI_Fuse(self._shape, mirrored).Shape()
+        return self._copy(_shape=fused)
 
     # --- Introspection ---
 
