@@ -198,6 +198,7 @@ class OCPCodegen:
         ast.TupleLit:      "_expr_tuple_lit",
         ast.ListLit:       "_expr_list_lit",
         ast.ListComp:      "_gen_list_comp",
+        ast.IndexAccess:   "_expr_index_access",
         ast.IfExpr:        "_expr_if_expr",
         ast.BoolConst:     "_expr_bool_const",
         ast.SelectorLit:   "_expr_selector_lit",
@@ -1077,6 +1078,11 @@ class OCPCodegen:
         var = node.var
         iter_expr = self._gen_expr(node.iter_expr)
         return f"[{expr} for {var} in range({iter_expr})]"
+
+    def _expr_index_access(self, node: ast.IndexAccess) -> str:
+        obj = self._gen_expr(node.obj)
+        idx = self._gen_expr(node.index)
+        return f"({obj}[{idx}])"
 
     # --- Function Call ---
 

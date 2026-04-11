@@ -98,6 +98,35 @@ class TestListComp:
         assert '(i * 2) for i in range(5)' in code
 
 
+class TestIndexAccess:
+    def test_basic(self):
+        code = compile_source("$x = [10, 20, 30]\n$y = $x[1]\nbox $y $y $y")
+        assert '[1]' in code
+
+    def test_literal_index(self):
+        code = compile_source("$y = [10, 20, 30][0]\nbox $y $y $y")
+        assert '[10, 20, 30]' in code
+        assert '[0]' in code
+
+    def test_expr_index(self):
+        code = compile_source("$x = [10, 20, 30]\n$i = 1\n$y = $x[$i % 3]\nbox $y $y $y")
+        assert '(i % 3)' in code
+
+    def test_chain(self):
+        code = compile_source("$y = [[1, 2], [3, 4]][0][1]\nbox $y $y $y")
+        assert '[0]' in code
+        assert '[1]' in code
+
+    def test_ast_node(self):
+        tree = parse("$x = [10, 20, 30]\n$y = $x[1]")
+        prog = transform(tree)
+        assign = prog.statements[1]
+        assert isinstance(assign, ast.Assignment)
+        assert isinstance(assign.value, ast.IndexAccess)
+        assert isinstance(assign.value.obj, ast.VarRef)
+        assert isinstance(assign.value.index, ast.NumberLit)
+
+
 class TestMathFunctions:
     def test_sin(self):
         code = compile_source("$x = sin(1)\nbox $x $x $x")

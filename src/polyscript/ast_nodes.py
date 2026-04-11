@@ -100,6 +100,12 @@ class ListComp(Node):
 
 
 @dataclass
+class IndexAccess(Node):
+    obj: Node | None = None
+    index: Node | None = None
+
+
+@dataclass
 class IfExpr(Node):
     cond: Node | None = None
     then_expr: Node | None = None

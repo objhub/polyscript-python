@@ -694,6 +694,9 @@ class PolyTransformer(LarkTransformer):
     def list_comp_expr(self, items):
         return ast.ListComp(expr=items[0], var=self._strip_dollar(items[1]), iter_expr=items[2])
 
+    def index_access(self, items):
+        return ast.IndexAccess(obj=items[0], index=items[1])
+
     def func_call(self, items):
         name = str(items[0])
         # Greedy grammar: items = [NAME, arg1, arg2, ...]
