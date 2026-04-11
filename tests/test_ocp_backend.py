@@ -43,7 +43,7 @@ class TestOCP3DPrimitives:
         assert abs(bb.zlen - 30) < 0.01
 
     def test_cylinder(self):
-        result = execute("cylinder 10 5")
+        result = execute("cylinder 5 10")
         bb = result.val().BoundingBox()
         assert abs(bb.zlen - 10) < 0.01
         assert abs(bb.xlen - 10) < 0.5  # diameter
@@ -464,6 +464,6 @@ class TestOCPVerts3DPrimitive:
     def test_full_pipeline_box_verts_cylinder(self):
         """Full pipeline: box | verts | cylinder produces valid geometry."""
         result = execute(
-            'box 50 50 50 | verts | cylinder 10 3',
+            'box 50 50 50 | verts | cylinder 3 10',
         )
         assert result._shape is not None

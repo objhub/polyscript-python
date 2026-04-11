@@ -10,7 +10,7 @@ class Test3DPrimitives:
         assert '.box(80, 60, 10)' in code
 
     def test_cylinder(self):
-        code = compile_source("cylinder 30 15")
+        code = compile_source("cylinder 15 30")
         assert '.cylinder(30, 15)' in code
 
     def test_sphere(self):
@@ -75,7 +75,7 @@ class TestPathPrimitives:
 class TestImplicitUnion:
     def test_multiple_toplevel_shapes(self):
         """Multiple top-level shapes are implicitly unioned."""
-        code = compile_source("box 10 10 10\ncylinder 5 20 at:30 0")
+        code = compile_source("box 10 10 10\ncylinder 20 5 at:30 0")
         assert '.union(' in code
 
     def test_single_toplevel_shape(self):
@@ -85,12 +85,12 @@ class TestImplicitUnion:
 
     def test_assignment_not_in_union(self):
         """Assignments should not be included in implicit union."""
-        code = compile_source("$a = box 10 10 10\ncylinder 5 20")
+        code = compile_source("$a = box 10 10 10\ncylinder 20 5")
         # Only one top-level shape expression (cylinder), so no union
         assert '.union(' not in code
 
     def test_three_toplevel_shapes(self):
         """Three top-level shapes produce a union chain."""
-        code = compile_source("box 10 10 10\ncylinder 5 20\nsphere 8")
+        code = compile_source("box 10 10 10\ncylinder 20 5\nsphere 8")
         # Should have two .union() calls
         assert code.count('.union(') == 2

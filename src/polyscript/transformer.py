@@ -82,8 +82,8 @@ class PolyTransformer(LarkTransformer):
     def cylinder(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Cylinder(
-            height=args[0] if len(args) > 0 else kwargs.get("h"),
-            radius=args[1] if len(args) > 1 else kwargs.get("r"),
+            radius=args[0] if len(args) > 0 else kwargs.get("r"),
+            height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
         )
@@ -481,8 +481,8 @@ class PolyTransformer(LarkTransformer):
     def pipe_cylinder(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit3DPrimitive(primitive=ast.Cylinder(
-            height=args[0] if len(args) > 0 else kwargs.get("h"),
-            radius=args[1] if len(args) > 1 else kwargs.get("r"),
+            radius=args[0] if len(args) > 0 else kwargs.get("r"),
+            height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
         ))

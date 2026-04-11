@@ -36,7 +36,7 @@ class TestModifiers:
 
 class TestBoolean:
     def test_diff(self):
-        code = compile_source("box 50 50 10 | diff cylinder 10 5")
+        code = compile_source("box 50 50 10 | diff cylinder 5 10")
         assert '.cut(' in code
         assert '.cylinder(10, 5)' in code
 
@@ -50,20 +50,20 @@ class TestBoolean:
         assert '.intersect(' in code
 
     def test_diff_with_at(self):
-        code = compile_source("box 50 50 10 | diff cylinder 10 3 at:(15, 15, 0)")
+        code = compile_source("box 50 50 10 | diff cylinder 3 10 at:(15, 15, 0)")
         assert '.cut(' in code
         assert '.translate(' in code
 
     def test_diff_group(self):
-        code = compile_source("box 50 50 10 | diff [cylinder 10 5, sphere 3]")
+        code = compile_source("box 50 50 10 | diff [cylinder 5 10, sphere 3]")
         assert '.cut(' in code
 
     def test_diff_var(self):
-        code = compile_source("$holes = cylinder 10 5\nbox 50 50 10 | diff $holes")
+        code = compile_source("$holes = cylinder 5 10\nbox 50 50 10 | diff $holes")
         assert '.cut(' in code
 
     def test_diff_paren_compat(self):
-        code = compile_source("box 50 50 10 | diff (cylinder 10 5)")
+        code = compile_source("box 50 50 10 | diff (cylinder 5 10)")
         assert '.cut(' in code
 
 
@@ -130,13 +130,13 @@ class TestCutHole:
 
     def test_hole(self):
         code = compile_source(
-            'cylinder 5 30 | faces >Z | workplane | points (polar 4 10) | hole 3'
+            'cylinder 30 5 | faces >Z | workplane | points (polar 4 10) | hole 3'
         )
         assert '.hole(3 * 2)' in code
 
     def test_hole_with_depth(self):
         code = compile_source(
-            'cylinder 5 30 | faces >Z | workplane | hole 3 depth:5'
+            'cylinder 30 5 | faces >Z | workplane | hole 3 depth:5'
         )
         assert '.hole(3 * 2, 5)' in code
 
@@ -187,7 +187,7 @@ class TestSelection:
 
     def test_points_polar(self):
         code = compile_source(
-            'cylinder 5 30 | faces >Z | workplane | points (polar 6 20)'
+            'cylinder 30 5 | faces >Z | workplane | points (polar 6 20)'
         )
         assert 'pushPoints' in code
         assert 'math.cos' in code
@@ -511,7 +511,7 @@ class TestImplicit3DPrimitive:
 
     def test_cylinder_after_verts(self):
         """rect | verts | cylinder should place cylinders at each vertex."""
-        code = compile_source("rect 100 100 | verts | cylinder 10 3")
+        code = compile_source("rect 100 100 | verts | cylinder 3 10")
         assert ".vertices()" in code
         assert "place_3d_at_points" in code
         assert ".cylinder(10, 3)" in code
@@ -557,7 +557,7 @@ class TestImplicit3DPrimitive:
     def test_3d_prim_in_2d_context_rejected(self):
         """3D primitive in 2D context should error."""
         with pytest.raises(CodegenError, match="3D primitive 'cylinder' in pipe requires vertex or point selection"):
-            compile_source("rect 100 100 | cylinder 10 5")
+            compile_source("rect 100 100 | cylinder 5 10")
 
     def test_3d_prim_output_context_is_3d(self):
         """After placing 3D prims, context should be 3D -- fillet should work."""

@@ -54,14 +54,14 @@ class TestFunctions:
 
     def test_multi_param_func(self):
         code = compile_source(
-            "def standoff($r, $h) = cylinder $h $r\nstandoff 4 10"
+            "def standoff($r, $h) = cylinder $r $h\nstandoff 4 10"
         )
         assert 'def standoff(r, h):' in code
         assert 'return' in code
 
     def test_func_with_pipe(self):
         code = compile_source(
-            "def standoff($r, $h, $hole_r) = cylinder $h $r | diff cylinder $h $hole_r\nstandoff 4 10 1.5"
+            "def standoff($r, $h, $hole_r) = cylinder $r $h | diff cylinder $hole_r $h\nstandoff 4 10 1.5"
         )
         assert 'def standoff(r, h, hole_r):' in code
         assert '.cut(' in code

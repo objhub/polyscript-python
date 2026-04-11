@@ -55,7 +55,7 @@ class TestCenterParsing:
         assert stmt.center is None
 
     def test_cylinder_center(self):
-        tree = parse("cylinder 10 5 center:false")
+        tree = parse("cylinder 5 10 center:false")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert isinstance(stmt, ast.Cylinder)
@@ -146,7 +146,7 @@ class TestCenterCodegen3D:
         assert ".box(10, 20, 30)" in code
 
     def test_cylinder_center_false(self):
-        code = _parse_and_gen("cylinder 10 5 center:false")
+        code = _parse_and_gen("cylinder 5 10 center:false")
         assert ".cylinder(10, 5, centered=(False, False, False))" in code
 
     def test_sphere_center_false(self):
@@ -198,7 +198,7 @@ class TestCenterCodegenPipe:
         assert ".box(10, 20, 30, centered=(False, False, False))" in code
 
     def test_pipe_cylinder_center_false(self):
-        code = _parse_and_gen("rect 100 100 | verts | cylinder 10 5 center:false")
+        code = _parse_and_gen("rect 100 100 | verts | cylinder 5 10 center:false")
         assert ".cylinder(10, 5, centered=(False, False, False))" in code
 
 
@@ -239,7 +239,7 @@ class TestCenterMultiValue:
         assert ".rect(10, 20, centered=(False, True))" in code
 
     def test_cylinder_center_multi_value_codegen(self):
-        code = _parse_and_gen("cylinder 10 5 center:false true false")
+        code = _parse_and_gen("cylinder 5 10 center:false true false")
         assert ".cylinder(10, 5, centered=(False, True, False))" in code
 
     def test_sphere_center_multi_value_codegen(self):

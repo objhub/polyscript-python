@@ -19,13 +19,13 @@ class TestAtPlacement:
         assert '.union(' in code
 
     def test_diff_at(self):
-        code = compile_source("box 50 50 10 | diff cylinder 10 3 at:(15, 15, 0)")
+        code = compile_source("box 50 50 10 | diff cylinder 3 10 at:(15, 15, 0)")
         assert '.cut(' in code
         assert '.translate((15, 15, 0))' in code
 
     def test_at_bare_values(self):
         """at:20 10 should work with greedy collection."""
-        code = compile_source("cylinder 5 20 at:30 0")
+        code = compile_source("cylinder 20 5 at:30 0")
         assert '.translate((30, 0, 0))' in code
 
     def test_at_bare_3d(self):
@@ -39,7 +39,7 @@ class TestPipeGridPolar:
 
     def test_pipe_polar(self):
         """polar as pipe operation."""
-        code = compile_source("cylinder 10 5 | polar 6 15")
+        code = compile_source("cylinder 5 10 | polar 6 15")
         assert '.polar(6, 15)' in code
 
     def test_pipe_grid(self):
@@ -115,7 +115,7 @@ class TestUnionSource:
         assert '.box(10, 10, 10)' in code
 
     def test_diff_source(self):
-        code = compile_source("diff [box 20 20 20, cylinder 10 5]")
+        code = compile_source("diff [box 20 20 20, cylinder 5 10]")
         assert '.cut(' in code
 
     def test_inter_source(self):

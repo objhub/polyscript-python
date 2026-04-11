@@ -44,7 +44,7 @@ poly hello.poly -o hello.py         # export Python code
 ### Parametric function
 
 ```
-def standoff(r, h, hole_r) = cylinder h r | diff cylinder h hole_r
+def standoff(r, h, hole_r) = cylinder r h | diff cylinder hole_r h
 
 box 80 60 3
  | fillet 1
@@ -58,7 +58,7 @@ r = 10
 polygon [(r * cos(rad(60 * i)), r * sin(rad(60 * i)))
          for i in range(6)]
  | extrude 8
- | diff cylinder 10 4
+ | diff cylinder 4 10
  | faces ">Z" | chamfer 1
  | faces "<Z" | chamfer 1
 ```
@@ -70,7 +70,7 @@ import "gear"
 
 spur_gear 12 2
  | extrude 8
- | diff cylinder 8 3
+ | diff cylinder 3 8
  | faces ">Z" | chamfer 0.5
 ```
 
@@ -84,7 +84,7 @@ h = 25
 
 path = helix pitch h r
 groove = polygon [(0, -pitch/3), (-depth*1.5, 0), (0, pitch/3)]
-shaft = cylinder h r | diff (groove | sweep path)
+shaft = cylinder r h | diff (groove | sweep path)
 
 hr = 8
 head = polygon [(hr * cos(rad(60 * i)), hr * sin(rad(60 * i)))
@@ -98,10 +98,10 @@ head = polygon [(hr * cos(rad(60 * i)), hr * sin(rad(60 * i)))
 ### Flanged pipe with bolt holes
 
 ```
-cylinder 5 25
+cylinder 25 5
  | faces ">Z" | workplane
  | circle 15 | extrude 30
- | diff cylinder 40 12
+ | diff cylinder 12 40
  | faces "<Z" | workplane
  | points (polar 6 20)
  | hole 5 depth:5

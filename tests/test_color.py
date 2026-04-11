@@ -120,7 +120,7 @@ class TestColorParser:
         assert op.args[0].value == "#FF0000"
 
     def test_color_rgb_float(self):
-        prog = self._parse_to_ast("cylinder 10 5 | color 0.8 0.2 0.1")
+        prog = self._parse_to_ast("cylinder 5 10 | color 0.8 0.2 0.1")
         stmt = prog.statements[0]
         op = stmt.operations[0]
         assert isinstance(op, ast.ColorOp)
@@ -172,7 +172,7 @@ class TestColorCodegen:
         assert ".setColor(" in code
 
     def test_codegen_rgb_float(self):
-        code = compile_source("cylinder 10 5 | color 0.8 0.2 0.1")
+        code = compile_source("cylinder 5 10 | color 0.8 0.2 0.1")
         assert ".setColor(" in code
         # Should have normalization logic
         assert "_r" in code

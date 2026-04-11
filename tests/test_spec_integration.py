@@ -16,7 +16,7 @@ class TestSpecExample1:
 box 80 60 10
  | fillet 2
  | diff cylinder 10 10
- | diff cylinder 10 2.5 at:(20, 10)"""
+ | diff cylinder 2.5 10 at:(20, 10)"""
         code = compile_source(source)
         assert '.box(80, 60, 10)' in code
         assert '.fillet(2)' in code
@@ -30,7 +30,7 @@ box 80 60 10
 box 80 60 10
  | fillet 2
  | diff cylinder 10 10
- | diff cylinder 10 2.5 at:(20, 10)"""
+ | diff cylinder 2.5 10 at:(20, 10)"""
         result = execute(source)
         assert result._shape is not None
         bb = result.val().BoundingBox()
