@@ -21,11 +21,15 @@ class Test3DPrimitives:
 
     def test_cylinder(self):
         code = compile_source("cylinder 15 30")
-        assert '.cylinder(30, 15)' in code
+        assert '.cylinder(15, 30)' in code
 
     def test_sphere(self):
         code = compile_source("sphere 10")
         assert '.sphere(10)' in code
+
+    def test_wedge(self):
+        code = compile_source("wedge 10 5 8 3")
+        assert '.wedge(10, 5, 8, 3)' in code
 
 
 class Test2DPrimitives:
@@ -48,11 +52,11 @@ class Test2DPrimitives:
 
     def test_polygon(self):
         code = compile_source("polygon 6 8")
-        assert '.polygon(6, 8 * 2)' in code
+        assert '.polygon(6, 8)' in code
 
     def test_polygon_as_source(self):
         code = compile_source("polygon 6 8 | extrude 10")
-        assert '.polygon(6, 8 * 2)' in code
+        assert '.polygon(6, 8)' in code
         assert '.extrude(10' in code
 
     def test_text(self):
@@ -116,10 +120,10 @@ class TestConeAST:
         prog = transform(tree)
         stmt = prog.statements[0]
         assert isinstance(stmt, ast.Cone)
-        assert isinstance(stmt.height, ast.NumberLit)
-        assert stmt.height.value == 10
-        assert stmt.r1.value == 5
-        assert stmt.r2.value == 2
+        assert isinstance(stmt.r1, ast.NumberLit)
+        assert stmt.r1.value == 10
+        assert stmt.r2.value == 5
+        assert stmt.height.value == 2
 
     def test_parse_cone_kwargs(self):
         tree = parse("cone h:10 r1:5 r2:0")
@@ -132,7 +136,7 @@ class TestConeAST:
 
     def test_parse_cone_full_cone(self):
         """r2=0 makes a full cone."""
-        tree = parse("cone 10 5 0")
+        tree = parse("cone 5 0 10")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert isinstance(stmt, ast.Cone)
@@ -145,8 +149,8 @@ class TestConeCodegen:
         assert ".cone(10, 5, 2)" in code
 
     def test_codegen_cone_in_pipeline(self):
-        code = _parse_and_gen('cone 10 5 0 | translate 5 0 0')
-        assert ".cone(10, 5, 0)" in code
+        code = _parse_and_gen('cone 5 0 10 | translate 5 0 0')
+        assert ".cone(5, 0, 10)" in code
         assert ".translate" in code
 
 
@@ -226,6 +230,11 @@ class TestKeywordExclusion:
         tree = parse("torus 10 3")
         prog = transform(tree)
         assert isinstance(prog.statements[0], ast.Torus)
+
+    def test_wedge_not_varref(self):
+        tree = parse("wedge 10 5 8 3")
+        prog = transform(tree)
+        assert isinstance(prog.statements[0], ast.Wedge)
 
     def test_spline_not_varref(self):
         tree = parse("spline [(0,0,0), (1,1,1)]")

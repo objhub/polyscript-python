@@ -168,6 +168,16 @@ class Torus(Node):
     at: Node | None = None
 
 
+@dataclass
+class Wedge(Node):
+    dx: Node | None = None
+    dy: Node | None = None
+    dz: Node | None = None
+    ltx: Node | None = None
+    center: Node | None = None
+    at: Node | None = None
+
+
 # --- 2D Primitives ---
 
 @dataclass

@@ -16,7 +16,7 @@ from OCP.gp import (
 )
 from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeSphere,
-    BRepPrimAPI_MakeCone, BRepPrimAPI_MakeTorus,
+    BRepPrimAPI_MakeCone, BRepPrimAPI_MakeTorus, BRepPrimAPI_MakeWedge,
     BRepPrimAPI_MakePrism, BRepPrimAPI_MakeRevol,
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
@@ -566,7 +566,7 @@ class Workplane:
             shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def cylinder(self, h, r, centered=(True, True, True)):
+    def cylinder(self, r, h, centered=(True, True, True)):
         # MakeCylinder creates at origin along Z, base at z=0
         ax2 = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
         shape = BRepPrimAPI_MakeCylinder(ax2, r, h).Shape()
@@ -588,7 +588,7 @@ class Workplane:
             shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
-    def cone(self, h, r1, r2, pnt=None, dir=None, angle=None, centered=(True, True, True)):
+    def cone(self, r1, r2, h, pnt=None, dir=None, angle=None, centered=(True, True, True)):
         p = gp_Pnt(*(pnt if pnt else (0, 0, 0)))
         d = gp_Dir(*(dir if dir else (0, 0, 1)))
         ax2 = gp_Ax2(p, d)
@@ -611,6 +611,16 @@ class Workplane:
         tx = 0 if centered[0] else r1 + r2
         ty = 0 if centered[1] else r1 + r2
         tz = 0 if centered[2] else r2
+        if tx != 0 or ty != 0 or tz != 0:
+            shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
+        return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
+
+    def wedge(self, dx, dy, dz, ltx, centered=(True, True, True)):
+        # MakeWedge creates from origin (0,0,0) to (dx,dy,dz) with top face width ltx
+        shape = BRepPrimAPI_MakeWedge(dx, dy, dz, ltx).Shape()
+        tx = -dx / 2 if centered[0] else 0
+        ty = -dy / 2 if centered[1] else 0
+        tz = -dz / 2 if centered[2] else 0
         if tx != 0 or ty != 0 or tz != 0:
             shape = _translate_shape(shape, gp_Vec(tx, ty, tz))
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
@@ -689,13 +699,9 @@ class Workplane:
             new_wires.append(wire)
         return self._copy(_wires=new_wires)
 
-    def polygon(self, n, d=2):
-        """Create a regular polygon with n sides and circumscribed-circle diameter d.
-
-        CadQuery-compatible: d is the diameter of the circumscribed circle.
-        """
+    def polygon(self, n, r=1):
+        """Create a regular polygon with n sides and circumscribed-circle radius r."""
         import math
-        r = d / 2
         pts = [(r * math.cos(2 * math.pi * i / n), r * math.sin(2 * math.pi * i / n)) for i in range(n)]
         return self.polyline(pts).close()
 

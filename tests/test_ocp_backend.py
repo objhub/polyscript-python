@@ -53,6 +53,13 @@ class TestOCP3DPrimitives:
         bb = result.val().BoundingBox()
         assert abs(bb.xlen - 10) < 0.5  # diameter
 
+    def test_wedge(self):
+        result = execute("wedge 10 5 8 3")
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 10) < 0.01
+        assert abs(bb.ylen - 5) < 0.01
+        assert abs(bb.zlen - 8) < 0.01
+
 
 # ---------------------------------------------------------------------------
 # 2D Primitives -> Extrude
@@ -268,7 +275,7 @@ class TestOCPTransform:
 
     def test_translate_vertex_selection(self):
         """translate in VertexSelection context offsets vertex positions."""
-        result = execute("rect 80 60 | verts | translate 10 10 10 | cone 6 2 0")
+        result = execute("rect 80 60 | verts | translate 10 10 10 | cone 2 0 6")
         assert result._shape is not None
         bb = result.val().BoundingBox()
         # All cones should be shifted by (10,10,10) from original rect vertices

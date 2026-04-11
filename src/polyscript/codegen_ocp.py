@@ -206,6 +206,7 @@ class OCPCodegen:
         ast.Sphere:        "_gen_sphere",
         ast.Cone:          "_gen_cone",
         ast.Torus:         "_gen_torus",
+        ast.Wedge:         "_gen_wedge",
         ast.Rect:          "_gen_rect",
         ast.Circle:        "_gen_circle",
         ast.Ellipse:       "_gen_ellipse",
@@ -473,7 +474,7 @@ class OCPCodegen:
         h = self._gen_expr(node.height)
         r = self._gen_expr(node.radius)
         centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").cylinder({h}, {r}{centered})'
+        code = f'cq.Workplane("XY").cylinder({r}, {h}{centered})'
         return self._gen_at_kwarg(code, node.at)
 
     def _gen_sphere(self, node: ast.Sphere) -> str:
@@ -494,7 +495,7 @@ class OCPCodegen:
         if node.angle:
             extras += f", angle={self._gen_expr(node.angle)}"
         centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").cone({h}, {r1}, {r2}{extras}{centered})'
+        code = f'cq.Workplane("XY").cone({r1}, {r2}, {h}{extras}{centered})'
         return self._gen_at_kwarg(code, node.at)
 
     def _gen_torus(self, node: ast.Torus) -> str:
@@ -502,6 +503,15 @@ class OCPCodegen:
         r2 = self._gen_expr(node.r2)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").torus({r1}, {r2}{centered})'
+        return self._gen_at_kwarg(code, node.at)
+
+    def _gen_wedge(self, node: ast.Wedge) -> str:
+        dx = self._gen_expr(node.dx)
+        dy = self._gen_expr(node.dy)
+        dz = self._gen_expr(node.dz)
+        ltx = self._gen_expr(node.ltx)
+        centered = self._gen_centered_arg(node.center, ndim=3)
+        code = f'cq.Workplane("XY").wedge({dx}, {dy}, {dz}, {ltx}{centered})'
         return self._gen_at_kwarg(code, node.at)
 
     # --- 2D Primitives ---
@@ -533,7 +543,7 @@ class OCPCodegen:
     def _gen_polygon(self, node: ast.Polygon) -> str:
         n = self._gen_expr(node.n)
         r = self._gen_expr(node.r)
-        return f'cq.Workplane("XY").polygon({n}, {r} * 2)'
+        return f'cq.Workplane("XY").polygon({n}, {r})'
 
     def _gen_text(self, node: ast.Text) -> str:
         content = self._gen_expr(node.content)
@@ -972,7 +982,7 @@ class OCPCodegen:
         elif isinstance(prim, ast.Polygon):
             n = self._gen_expr(prim.n)
             r = self._gen_expr(prim.r)
-            return f'{current}.polygon({n}, {r} * 2)'
+            return f'{current}.polygon({n}, {r})'
         elif isinstance(prim, ast.Text):
             content = self._gen_expr(prim.content)
             size = self._gen_expr(prim.size) if prim.size else "10"
@@ -994,7 +1004,7 @@ class OCPCodegen:
             ht = self._gen_expr(prim.height)
             r = self._gen_expr(prim.radius)
             centered = self._gen_centered_arg(prim.center, ndim=3)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cylinder({ht}, {r}{centered}))'
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cylinder({r}, {ht}{centered}))'
         elif isinstance(prim, ast.Sphere):
             r = self._gen_expr(prim.radius)
             centered = self._gen_centered_arg(prim.center, ndim=3)
@@ -1004,12 +1014,19 @@ class OCPCodegen:
             r1 = self._gen_expr(prim.r1)
             r2 = self._gen_expr(prim.r2)
             centered = self._gen_centered_arg(prim.center, ndim=3)
-            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cone({ht}, {r1}, {r2}{centered}))'
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").cone({r1}, {r2}, {ht}{centered}))'
         elif isinstance(prim, ast.Torus):
             r1 = self._gen_expr(prim.r1)
             r2 = self._gen_expr(prim.r2)
             centered = self._gen_centered_arg(prim.center, ndim=3)
             return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").torus({r1}, {r2}{centered}))'
+        elif isinstance(prim, ast.Wedge):
+            dx = self._gen_expr(prim.dx)
+            dy = self._gen_expr(prim.dy)
+            dz = self._gen_expr(prim.dz)
+            ltx = self._gen_expr(prim.ltx)
+            centered = self._gen_centered_arg(prim.center, ndim=3)
+            return f'{current}.place_3d_at_points(lambda: cq.Workplane("XY").wedge({dx}, {dy}, {dz}, {ltx}{centered}))'
         else:
             raise CodegenError(f"Cannot use {type(prim).__name__} as implicit 3D in pipe")
 

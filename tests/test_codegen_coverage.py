@@ -127,7 +127,7 @@ class TestImplicit2D:
         code = compile_source(
             'box 50 50 10 | faces >Z | workplane | polygon 6 8 | cut'
         )
-        assert '.polygon(6, 8 * 2)' in code
+        assert '.polygon(6, 8)' in code
         assert '.cutThruAll()' in code
 
 

@@ -99,9 +99,9 @@ class PolyTransformer(LarkTransformer):
     def cone(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Cone(
-            height=args[0] if len(args) > 0 else kwargs.get("h"),
-            r1=args[1] if len(args) > 1 else kwargs.get("r1"),
-            r2=args[2] if len(args) > 2 else kwargs.get("r2"),
+            r1=args[0] if len(args) > 0 else kwargs.get("r1"),
+            r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            height=args[2] if len(args) > 2 else kwargs.get("h"),
             pnt=kwargs.get("pnt"),
             dir=kwargs.get("dir"),
             angle=kwargs.get("angle"),
@@ -114,6 +114,17 @@ class PolyTransformer(LarkTransformer):
         return ast.Torus(
             r1=args[0] if len(args) > 0 else kwargs.get("r1"),
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
+        )
+
+    def wedge(self, items):
+        args, kwargs = self._split_args(items[0])
+        return ast.Wedge(
+            dx=args[0] if len(args) > 0 else None,
+            dy=args[1] if len(args) > 1 else None,
+            dz=args[2] if len(args) > 2 else None,
+            ltx=args[3] if len(args) > 3 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
         )
@@ -505,9 +516,9 @@ class PolyTransformer(LarkTransformer):
     def pipe_cone(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit3DPrimitive(primitive=ast.Cone(
-            height=args[0] if len(args) > 0 else kwargs.get("h"),
-            r1=args[1] if len(args) > 1 else kwargs.get("r1"),
-            r2=args[2] if len(args) > 2 else kwargs.get("r2"),
+            r1=args[0] if len(args) > 0 else kwargs.get("r1"),
+            r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            height=args[2] if len(args) > 2 else kwargs.get("h"),
             pnt=kwargs.get("pnt"),
             dir=kwargs.get("dir"),
             angle=kwargs.get("angle"),
@@ -520,6 +531,17 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit3DPrimitive(primitive=ast.Torus(
             r1=args[0] if len(args) > 0 else kwargs.get("r1"),
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
+            center=kwargs.get("center"),
+            at=kwargs.get("at"),
+        ))
+
+    def pipe_wedge(self, items):
+        args, kwargs = self._split_args(items[0])
+        return ast.Implicit3DPrimitive(primitive=ast.Wedge(
+            dx=args[0] if len(args) > 0 else None,
+            dy=args[1] if len(args) > 1 else None,
+            dz=args[2] if len(args) > 2 else None,
+            ltx=args[3] if len(args) > 3 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
         ))

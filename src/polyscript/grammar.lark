@@ -119,6 +119,7 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
         | "sphere" greedy_args               -> pipe_sphere
         | "cone" greedy_args                 -> pipe_cone
         | "torus" greedy_args                -> pipe_torus
+        | "wedge" greedy_args                -> pipe_wedge
         | "grid" greedy_args                 -> pipe_grid
         | "polar" greedy_args                -> pipe_polar
 
@@ -184,6 +185,7 @@ arg: NAME ":" expr    -> kwarg
           | "sphere" greedy_args       -> sphere
           | "cone" greedy_args         -> cone
           | "torus" greedy_args        -> torus
+          | "wedge" greedy_args        -> wedge
           | "rect" greedy_args         -> rect
           | "circle" greedy_args       -> circle
           | "ellipse" greedy_args      -> ellipse

@@ -41,7 +41,7 @@ class TestBoolean:
     def test_diff(self):
         code = compile_source("box 50 50 10 | diff cylinder 5 10")
         assert '.cut(' in code
-        assert '.cylinder(10, 5)' in code
+        assert '.cylinder(5, 10)' in code
 
     def test_union(self):
         code = compile_source("box 50 50 10 | union sphere 5")
@@ -209,7 +209,7 @@ class TestTransform:
 
     def test_translate_vertex_selection(self):
         """translate in VertexSelection context offsets points."""
-        code = compile_source("rect 80 60 | verts | translate 10 10 10 | cone 6 2 0")
+        code = compile_source("rect 80 60 | verts | translate 10 10 10 | cone 2 0 6")
         assert '.translate_points((10, 10, 10))' in code
 
     def test_translate_point_selection(self):
@@ -573,7 +573,7 @@ class TestImplicit3DPrimitive:
         code = compile_source("rect 100 100 | verts | cylinder 3 10")
         assert ".vertices()" in code
         assert "place_3d_at_points" in code
-        assert ".cylinder(10, 3)" in code
+        assert ".cylinder(3, 10)" in code
 
     def test_sphere_after_verts(self):
         """rect | verts | sphere should place spheres at each vertex."""

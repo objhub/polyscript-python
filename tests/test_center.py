@@ -147,7 +147,7 @@ class TestCenterCodegen3D:
 
     def test_cylinder_center_false(self):
         code = _parse_and_gen("cylinder 5 10 center:false")
-        assert ".cylinder(10, 5, centered=(False, False, False))" in code
+        assert ".cylinder(5, 10, centered=(False, False, False))" in code
 
     def test_sphere_center_false(self):
         code = _parse_and_gen("sphere 5 center:false")
@@ -199,7 +199,7 @@ class TestCenterCodegenPipe:
 
     def test_pipe_cylinder_center_false(self):
         code = _parse_and_gen("rect 100 100 | verts | cylinder 5 10 center:false")
-        assert ".cylinder(10, 5, centered=(False, False, False))" in code
+        assert ".cylinder(5, 10, centered=(False, False, False))" in code
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ class TestCenterMultiValue:
 
     def test_cylinder_center_multi_value_codegen(self):
         code = _parse_and_gen("cylinder 5 10 center:false true false")
-        assert ".cylinder(10, 5, centered=(False, True, False))" in code
+        assert ".cylinder(5, 10, centered=(False, True, False))" in code
 
     def test_sphere_center_multi_value_codegen(self):
         code = _parse_and_gen("sphere 5 center:false false true")

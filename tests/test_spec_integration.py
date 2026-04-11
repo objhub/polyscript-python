@@ -23,7 +23,7 @@ box 80 60 10
         assert '.fillet(2)' in code
         assert '.cut(' in code
         assert '.cylinder(10, 10)' in code
-        assert '.cylinder(10, 2.5)' in code
+        assert '.cylinder(2.5, 10)' in code
         assert '.translate(' in code
 
     def test_execute(self):
