@@ -25,37 +25,193 @@ def _strip_comments(source: str) -> str:
 
 def _preprocess(source: str) -> str:
     """Handle line continuation: join lines at logical boundaries."""
+    result, _ = _preprocess_with_mapping(source)
+    return result
+
+
+def _preprocess_with_mapping(source: str) -> tuple[str, dict[int, int]]:
+    """Preprocess source and build a line number mapping.
+
+    Returns:
+        A tuple of (preprocessed_source, line_map) where line_map maps
+        1-based preprocessed line numbers to 1-based original line numbers.
+    """
     # Normalize line endings
     source = source.replace("\r\n", "\n")
 
     # Strip comments before line joining
     source = _strip_comments(source)
 
-    # Join lines: line ending with | continues to next line
-    source = re.sub(r"\|\s*\n\s*", "| ", source)
+    # Build initial mapping: original line number for each line (1-based)
+    orig_lines = source.split("\n")
+    # line_origins[i] = original 1-based line number for orig_lines[i]
+    line_origins = list(range(1, len(orig_lines) + 1))
 
-    # Join lines: next line starting with | continues from previous
-    source = re.sub(r"\n\s*\|", " |", source)
+    def _join_lines(lines: list[str], origins: list[int], pattern: re.Pattern, mode: str) -> tuple[list[str], list[int]]:
+        """Join lines according to a continuation pattern.
 
-    # Join lines: line ending with = (but not ==, !=, <=, >=) continues
-    source = re.sub(r"(?<![=!<>])=\s*\n\s*", "= ", source)
+        mode:
+            'end'   - join when current line ends with pattern (merge next into current)
+            'start' - join when next line starts with pattern (merge next into current)
+        """
+        result_lines: list[str] = []
+        result_origins: list[int] = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            origin = origins[i]
+            if mode == "end":
+                # Keep merging while current line matches end pattern
+                while i + 1 < len(lines) and pattern.search(line):
+                    m = pattern.search(line)
+                    # Replace the match (end of line) and append next line
+                    line = line[:m.start()] + m.group("repl") + lines[i + 1].lstrip()
+                    i += 1
+            elif mode == "start":
+                # Keep merging while NEXT line matches start pattern
+                while i + 1 < len(lines) and pattern.search(lines[i + 1]):
+                    m = pattern.search(lines[i + 1])
+                    next_line = lines[i + 1]
+                    line = line + m.group("repl") + next_line[m.end():]
+                    i += 1
+            result_lines.append(line)
+            result_origins.append(origin)
+            i += 1
+        return result_lines, result_origins
 
-    # Join lines: line ending with , continues (tuples, lists, args)
-    source = re.sub(r",\s*\n\s*", ", ", source)
+    # Apply each continuation rule, tracking line origins
 
-    # Join lines: next line starting with else continues from previous
-    source = re.sub(r"\n\s*else\b", " else", source)
+    # Rule 1: line ending with | continues to next line
+    p_pipe_end = re.compile(r"\|\s*$(?P<repl>)", flags=0)
+    # Custom handling: replace trailing | with "| " and join
+    new_lines: list[str] = []
+    new_origins: list[int] = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.search(r"\|\s*$", line):
+            line = re.sub(r"\|\s*$", "| ", line) + orig_lines[i + 1].lstrip()
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
 
-    # Join lines: next line starting with + continues (expression continuation)
-    source = re.sub(r"\n\s*\+", " +", source)
+    # Rule 2: next line starting with | continues from previous
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.match(r"\s*\|", orig_lines[i + 1]):
+            next_stripped = re.sub(r"^\s*", " ", orig_lines[i + 1])
+            line = line + next_stripped
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
 
-    # Join lines: next line starting with for continues (list comprehension)
-    source = re.sub(r"\n\s*for\b", " for", source)
+    # Rule 3: line ending with = (but not ==, !=, <=, >=) continues
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.search(r"(?<![=!<>])=\s*$", line):
+            line = re.sub(r"(?<![=!<>])=\s*$", "= ", line) + orig_lines[i + 1].lstrip()
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
 
-    # Join lines: next line starting with ] continues (closing bracket)
-    source = re.sub(r"\n\s*\]", " ]", source)
+    # Rule 4: line ending with , continues
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.search(r",\s*$", line):
+            line = re.sub(r",\s*$", ", ", line) + orig_lines[i + 1].lstrip()
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
 
-    return source
+    # Rule 5: next line starting with 'else' continues
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.match(r"\s*else\b", orig_lines[i + 1]):
+            next_stripped = re.sub(r"^\s*", " ", orig_lines[i + 1])
+            line = line + next_stripped
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
+
+    # Rule 6: next line starting with + continues (but not +X, +Y, +Z selectors)
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.match(r"\s*\+(?![XYZ](?:\s|$|\|))", orig_lines[i + 1]):
+            next_stripped = re.sub(r"^\s*", " ", orig_lines[i + 1])
+            line = line + next_stripped
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
+
+    # Rule 7: next line starting with 'for' continues
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.match(r"\s*for\b", orig_lines[i + 1]):
+            next_stripped = re.sub(r"^\s*", " ", orig_lines[i + 1])
+            line = line + next_stripped
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
+
+    # Rule 8: next line starting with ] continues
+    new_lines = []
+    new_origins = []
+    i = 0
+    while i < len(orig_lines):
+        line = orig_lines[i]
+        origin = line_origins[i]
+        while i + 1 < len(orig_lines) and re.match(r"\s*\]", orig_lines[i + 1]):
+            next_stripped = re.sub(r"^\s*", " ", orig_lines[i + 1])
+            line = line + next_stripped
+            i += 1
+        new_lines.append(line)
+        new_origins.append(origin)
+        i += 1
+    orig_lines, line_origins = new_lines, new_origins
+
+    # Build the 1-based line map: preprocessed line N -> original line N
+    line_map = {i + 1: line_origins[i] for i in range(len(line_origins))}
+
+    return "\n".join(orig_lines), line_map
 
 
 def _extract_param_annotations(source: str) -> tuple[str, dict[int, str]]:
@@ -115,17 +271,21 @@ def parse(source: str):
     Also returns extracted @param annotations if any are present.
     """
     cleaned, annotations = _extract_param_annotations(source)
-    preprocessed = _preprocess(cleaned)
+    preprocessed, line_map = _preprocess_with_mapping(cleaned)
     try:
         tree = get_parser().parse(preprocessed)
     except lark_exceptions.UnexpectedInput as e:
+        # Translate preprocessed line number back to original source line
+        raw_line = getattr(e, "line", None)
+        orig_line = line_map.get(raw_line, raw_line) if raw_line else None
         raise ParseError(
             f"Syntax error: {e}",
-            line=getattr(e, "line", None),
+            line=orig_line,
             column=getattr(e, "column", None),
         ) from e
     tree._param_annotations = annotations
     tree._original_source = source
+    tree._line_map = line_map
     return tree
 
 

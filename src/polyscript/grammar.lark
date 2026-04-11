@@ -37,7 +37,10 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 // func_greedy_val: like greedy_val but no unary negation.
 // This prevents "NAME -expr" from being parsed as func_call with negative arg
 // instead of binary subtraction.
-?func_greedy_val: func_greedy_product
+?func_greedy_val: func_greedy_sum
+?func_greedy_sum: func_greedy_product
+                | func_greedy_sum "+" product -> add
+                | func_greedy_sum "-" product -> sub
 ?func_greedy_product: greedy_power
                     | func_greedy_product "*" unary -> mul
                     | func_greedy_product "/" unary -> div
@@ -47,7 +50,11 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 ?kwarg_val: greedy_val
           | tuple
 
-?greedy_val: greedy_product
+?greedy_val: greedy_sum
+
+?greedy_sum: greedy_product
+           | greedy_sum "+" product -> add
+           | greedy_sum "-" product -> sub
 
 // Greedy product: like product but atom level excludes "(" expr ")" and tuple.
 // Parenthesized expressions enter greedy args only via paren_arg.

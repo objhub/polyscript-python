@@ -364,78 +364,77 @@ class OCPCodegen:
             prev_op = op
         return code
 
+    # Dispatch table mapping AST node types to handler method names.
+    # Handlers are called as method(current, op) by default.
+    # Handlers listed in _PIPE_CTX_OPS also receive a ctx keyword argument.
+    _PIPE_DISPATCH: dict[type, str] = {
+        ast.FacesSelect:        "_gen_faces_select",
+        ast.EdgesSelect:        "_gen_edges_select",
+        ast.VerticesSelect:     "_gen_vertices_select",
+        ast.PointsSelect:       "_gen_points_select",
+        ast.Workplane:          "_gen_workplane",
+        ast.AsTag:              "_gen_as_tag",
+        ast.Fillet:             "_gen_pipe_fillet",
+        ast.Chamfer:            "_gen_pipe_chamfer",
+        ast.Shell:              "_gen_shell",
+        ast.Offset:             "_gen_offset",
+        ast.Diff:               "_gen_diff",
+        ast.Union:              "_gen_union",
+        ast.Inter:              "_gen_inter",
+        ast.Place:              "_gen_place",
+        ast.Hole:               "_gen_hole",
+        ast.Cut:                "_gen_cut",
+        ast.Extrude:            "_gen_extrude",
+        ast.Revolve:            "_gen_revolve",
+        ast.Sweep:              "_gen_sweep",
+        ast.Loft:               "_gen_loft",
+        ast.ColorOp:            "_gen_color",
+        ast.Translate:          "_gen_translate",
+        ast.Rotate:             "_gen_rotate",
+        ast.Scale:              "_gen_scale",
+        ast.Mirror:             "_gen_mirror",
+        ast.Move:               "_gen_move",
+        ast.MoveTo:             "_gen_moveto",
+        ast.Implicit2DPrimitive: "_gen_implicit_2d",
+        ast.Implicit3DPrimitive: "_gen_implicit_3d",
+        ast.Grid:               "_gen_pipe_grid",
+        ast.Polar:              "_gen_pipe_polar_op",
+    }
+
+    # Subset of _PIPE_DISPATCH whose handlers accept an extra ctx= keyword.
+    _PIPE_CTX_OPS: frozenset[type] = frozenset({
+        ast.Place, ast.Hole, ast.Translate, ast.Grid, ast.Polar,
+    })
+
     def _gen_pipe_op(self, current: str, op: ast.Node, prev_op: ast.Node | None = None, ctx: PipelineContext = PipelineContext.UNKNOWN) -> str:
         # Insert implicit workplane when going from Face selection to 2D primitive
         if isinstance(op, ast.Implicit2DPrimitive) and isinstance(prev_op, ast.FacesSelect):
             current = f"{current}.workplane()"
-        if isinstance(op, ast.FacesSelect):
-            return self._gen_faces_select(current, op)
-        elif isinstance(op, ast.EdgesSelect):
-            return self._gen_edges_select(current, op)
-        elif isinstance(op, ast.VerticesSelect):
-            return self._gen_vertices_select(current, op)
-        elif isinstance(op, ast.PointsSelect):
-            return self._gen_points_select(current, op)
-        elif isinstance(op, ast.Workplane):
-            return self._gen_workplane(current, op)
-        elif isinstance(op, ast.AsTag):
-            return self._gen_as_tag(current, op)
-        elif isinstance(op, ast.Fillet):
-            return f"{current}.fillet({self._gen_expr(op.radius)})"
-        elif isinstance(op, ast.Chamfer):
-            return f"{current}.chamfer({self._gen_expr(op.radius)})"
-        elif isinstance(op, ast.Shell):
-            return self._gen_shell(current, op)
-        elif isinstance(op, ast.Offset):
-            return self._gen_offset(current, op)
-        elif isinstance(op, ast.Diff):
-            return self._gen_diff(current, op)
-        elif isinstance(op, ast.Union):
-            return self._gen_union(current, op)
-        elif isinstance(op, ast.Inter):
-            return self._gen_inter(current, op)
-        elif isinstance(op, ast.Place):
-            return self._gen_place(current, op, ctx=ctx)
-        elif isinstance(op, ast.Hole):
-            return self._gen_hole(current, op, ctx=ctx)
-        elif isinstance(op, ast.Cut):
-            return self._gen_cut(current, op)
-        elif isinstance(op, ast.Extrude):
-            return self._gen_extrude(current, op)
-        elif isinstance(op, ast.Revolve):
-            return self._gen_revolve(current, op)
-        elif isinstance(op, ast.Sweep):
-            return self._gen_sweep(current, op)
-        elif isinstance(op, ast.Loft):
-            return self._gen_loft(current, op)
-        elif isinstance(op, ast.ColorOp):
-            return self._gen_color(current, op)
-        elif isinstance(op, ast.Translate):
-            return self._gen_translate(current, op, ctx=ctx)
-        elif isinstance(op, ast.Rotate):
-            return self._gen_rotate(current, op)
-        elif isinstance(op, ast.Scale):
-            return self._gen_scale(current, op)
-        elif isinstance(op, ast.Mirror):
-            return self._gen_mirror(current, op)
-        elif isinstance(op, ast.Move):
-            return self._gen_move(current, op)
-        elif isinstance(op, ast.MoveTo):
-            return self._gen_moveto(current, op)
-        elif isinstance(op, ast.Implicit2DPrimitive):
-            return self._gen_implicit_2d(current, op)
-        elif isinstance(op, ast.Implicit3DPrimitive):
-            return self._gen_implicit_3d(current, op)
-        elif isinstance(op, ast.Grid):
-            if ctx in (PipelineContext.FACE_SELECTION, PipelineContext.POINT_SELECTION):
-                return self._gen_grid_on_face(current, op, ctx)
-            return self._gen_grid_placement(current, op)
-        elif isinstance(op, ast.Polar):
-            if ctx in (PipelineContext.FACE_SELECTION, PipelineContext.POINT_SELECTION):
-                return self._gen_polar_on_face(current, op, ctx)
-            return self._gen_polar_placement(current, op)
-        else:
+
+        handler_name = self._PIPE_DISPATCH.get(type(op))
+        if handler_name is None:
             raise CodegenError(f"Unknown pipe operation: {type(op).__name__}")
+
+        handler = getattr(self, handler_name)
+        if type(op) in self._PIPE_CTX_OPS:
+            return handler(current, op, ctx=ctx)
+        return handler(current, op)
+
+    def _gen_pipe_fillet(self, current: str, op: ast.Fillet) -> str:
+        return f"{current}.fillet({self._gen_expr(op.radius)})"
+
+    def _gen_pipe_chamfer(self, current: str, op: ast.Chamfer) -> str:
+        return f"{current}.chamfer({self._gen_expr(op.radius)})"
+
+    def _gen_pipe_grid(self, current: str, op: ast.Grid, ctx: PipelineContext = PipelineContext.UNKNOWN) -> str:
+        if ctx in (PipelineContext.FACE_SELECTION, PipelineContext.POINT_SELECTION):
+            return self._gen_grid_on_face(current, op, ctx)
+        return self._gen_grid_placement(current, op)
+
+    def _gen_pipe_polar_op(self, current: str, op: ast.Polar, ctx: PipelineContext = PipelineContext.UNKNOWN) -> str:
+        if ctx in (PipelineContext.FACE_SELECTION, PipelineContext.POINT_SELECTION):
+            return self._gen_polar_on_face(current, op, ctx)
+        return self._gen_polar_placement(current, op)
 
     # --- Center kwarg helper ---
 
