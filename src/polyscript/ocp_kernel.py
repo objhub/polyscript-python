@@ -21,7 +21,7 @@ from OCP.BRepPrimAPI import (
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet, BRepFilletAPI_MakeChamfer
-from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections
 from OCP.BRepTools import BRepTools
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
@@ -1316,9 +1316,9 @@ class Workplane:
             path_wire = path
 
         # Transform the profile to the start of the path so that
-        # BRepOffsetAPI_MakePipe can work correctly.  The profile is
-        # assumed to lie in the workplane coordinate system (typically XY
-        # at the origin).  We move it so that:
+        # the sweep can work correctly.  The profile is assumed to lie in
+        # the workplane coordinate system (typically XY at the origin).
+        # We move it so that:
         #   - its centre sits at the path start point
         #   - it is oriented perpendicular to the path tangent there
         adaptor = BRepAdaptor_CompCurve(path_wire)
@@ -1327,11 +1327,20 @@ class Workplane:
         tangent_vec = adaptor.DN(t0, 1)
         tangent_dir = gp_Dir(tangent_vec)
 
-        # Build a coordinate system at the path start
-        # Choose an arbitrary reference direction that is not parallel to tangent
-        ref = gp_Dir(0, 0, 1)
-        if abs(tangent_dir.Dot(ref)) > 0.9:
+        # Use MakePipeShell with fixed binormal (Z) for paths that are
+        # not along Z (e.g. helices).  This prevents the profile from
+        # tilting by the helix angle.
+        binormal = gp_Dir(0, 0, 1)
+        use_binormal = abs(tangent_dir.Dot(binormal)) < 0.9
+
+        if use_binormal:
+            # X reference = radial direction (tangent × Z)
+            ref = tangent_dir.Crossed(binormal)
+        else:
             ref = gp_Dir(1, 0, 0)
+            if abs(tangent_dir.Dot(ref)) > 0.9:
+                ref = gp_Dir(0, 1, 0)
+
         ax2_target = gp_Ax2(start_pt, tangent_dir, ref)
 
         # Source coordinate system: the workplane normal + origin
@@ -1344,9 +1353,25 @@ class Workplane:
         trsf.SetTransformation(gp_Ax3(ax2_target), gp_Ax3(ax2_source))
 
         moved_wire = TopoDS.Wire_s(BRepBuilderAPI_Transform(wire, trsf, True).Shape())
-        face = _make_face_from_wire(moved_wire)
 
-        solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
+        if use_binormal:
+            try:
+                pipe_shell = BRepOffsetAPI_MakePipeShell(path_wire)
+                pipe_shell.SetMode(binormal)
+                pipe_shell.Add(moved_wire)
+                pipe_shell.Build()
+                if pipe_shell.IsDone():
+                    pipe_shell.MakeSolid()
+                    solid = pipe_shell.Shape()
+                else:
+                    face = _make_face_from_wire(moved_wire)
+                    solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
+            except Exception:
+                face = _make_face_from_wire(moved_wire)
+                solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
+        else:
+            face = _make_face_from_wire(moved_wire)
+            solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
         new_shape = solid
         if self._shape is not None and not self._wires:
             new_shape = BRepAlgoAPI_Fuse(self._shape, solid).Shape()
