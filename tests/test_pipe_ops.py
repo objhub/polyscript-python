@@ -276,6 +276,62 @@ class TestPipePolyline:
         assert '.cutThruAll()' in code
 
 
+class TestPipeSketch:
+    """Test sketch as a pipe operation on workplanes."""
+
+    def test_sketch_cut(self):
+        code = compile_source(
+            'box 80 60 10 | faces >Z | workplane | sketch [(5,0), (0,5), (-5,0), (0,-5)] | cut 3'
+        )
+        assert '.sketch(' in code
+        assert '.cutBlind(-3)' in code
+
+    def test_sketch_extrude(self):
+        code = compile_source(
+            'box 80 60 10 | faces >Z | workplane | sketch [(5,0), (0,5), (-5,0), (0,-5)] | extrude 5'
+        )
+        assert '.sketch(' in code
+        assert '.extrude(5)' in code
+
+    def test_sketch_implicit_workplane(self):
+        """sketch after faces should get implicit workplane."""
+        code = compile_source(
+            'box 80 60 10 | faces >Z | sketch [(5,0), (0,5), (-5,0), (0,-5)] | cut'
+        )
+        assert '.workplane()' in code
+        assert '.sketch(' in code
+        assert '.cutThruAll()' in code
+
+    def test_sketch_with_arc_in_pipe(self):
+        code = compile_source(
+            'box 10 10 10 | faces >Z | workplane | sketch [(5,0), arc (0,-5) (-5,0), (0,7), (5,0)] | cut'
+        )
+        assert '.sketch(' in code
+        assert '("arc"' in code
+        assert '("line"' in code
+
+    def test_sketch_context_is_2d(self):
+        """sketch in pipe should be recognized as 2D context."""
+        code = compile_source(
+            'box 80 60 10 | faces >Z | sketch [(5,0), (0,5), (-5,0), (0,-5)] | extrude 10'
+        )
+        assert '.extrude(10)' in code
+
+    def test_sketch_after_box_rejected(self):
+        """sketch after 3D shape without face selection should error."""
+        with pytest.raises(CodegenError, match="2D primitive 'sketch' requires face selection"):
+            compile_source("box 80 60 10 | sketch [(5,0), (0,5), (-5,0)]")
+
+    def test_sketch_does_not_use_standalone_workplane(self):
+        """Pipe sketch should use current workplane, not cq.Workplane('XY')."""
+        code = compile_source(
+            'box 80 60 10 | faces >Z | workplane | sketch [(5,0), (0,5), (-5,0), (0,-5)] | cut'
+        )
+        # The sketch call should chain off the current pipeline, not start with cq.Workplane("XY")
+        # Count occurrences of 'cq.Workplane("XY")' - should only be the initial box
+        assert code.count('cq.Workplane("XY")') == 1
+
+
 class TestPipeText:
     """Test text as a pipe operation on workplanes."""
 

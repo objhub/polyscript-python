@@ -398,6 +398,40 @@ class TestEdgeCases:
         assert result.params[0].min == 1
         assert result.params[0].max == 100
 
+    def test_param_annotation_without_dollar(self):
+        """@param should match variable without $ prefix."""
+        source = '@param 1..100\nwidth = 80'
+        tree = parse(source)
+        program = transform(tree)
+        assignments = [s for s in program.statements if isinstance(s, ast.Assignment)]
+        assert len(assignments) == 1
+        assert assignments[0].name == "width"
+        assert assignments[0].annotation is not None
+        assert assignments[0].annotation.options["min"] == 1
+        assert assignments[0].annotation.options["max"] == 100
+
+    def test_extract_params_without_dollar(self):
+        """extract_params should work with variables without $ prefix."""
+        source = '@param 1..200 desc:"Width"\nwidth = 80'
+        result = extract_params(source)
+        assert len(result.params) == 1
+        assert result.params[0].name == "width"
+        assert result.params[0].default == 80
+        assert result.params[0].desc == "Width"
+
+    def test_mixed_dollar_and_no_dollar_params(self):
+        """@param should work with a mix of $ and non-$ variables."""
+        source = (
+            '@param 1..200\n'
+            '$w = 80\n'
+            '@param 1..100\n'
+            'h = 60\n'
+        )
+        result = extract_params(source)
+        assert len(result.params) == 2
+        assert result.params[0].name == "w"
+        assert result.params[1].name == "h"
+
     def test_multiple_params_complex(self):
         source = (
             '@param 1..200 desc:"Width" group:"Size"\n'

@@ -545,8 +545,12 @@ class OCPCodegen:
     # --- Sketch ---
 
     def _gen_sketch(self, node: ast.SketchExpr) -> str:
+        return self._gen_sketch_segments(f'cq.Workplane("XY")', node)
+
+    def _gen_sketch_segments(self, current: str, node: ast.SketchExpr) -> str:
+        """Generate sketch(...) call with segments on the given workplane expression."""
         start = self._gen_expr(node.start)
-        parts = [f'cq.Workplane("XY").sketch({start}']
+        parts = [f'{current}.sketch({start}']
         for seg in node.segments:
             if isinstance(seg, ast.TupleLit):
                 pt = self._gen_expr(seg)
@@ -975,6 +979,8 @@ class OCPCodegen:
             content = self._gen_expr(prim.content)
             size = self._gen_expr(prim.size) if prim.size else "10"
             return f'{current}.text({content}, {size}, 1)'
+        elif isinstance(prim, ast.SketchExpr):
+            return self._gen_sketch_segments(current, prim)
         else:
             raise CodegenError(f"Cannot use {type(prim).__name__} as implicit 2D in pipe")
 

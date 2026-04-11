@@ -466,6 +466,13 @@ class PolyTransformer(LarkTransformer):
             size=args[1] if len(args) > 1 else kwargs.get("size"),
         ))
 
+    def pipe_sketch(self, items):
+        start = items[0]
+        segments = items[1:]
+        return ast.Implicit2DPrimitive(primitive=ast.SketchExpr(
+            start=start, segments=segments,
+        ))
+
     # --- Implicit 3D in pipes ---
 
     def pipe_box(self, items):

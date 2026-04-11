@@ -192,7 +192,7 @@ def _extract_param_by_varname(source: str) -> dict[str, str]:
     (NAME = ...). If found, the annotation is mapped to that variable name.
     """
     import re
-    _assign_re = re.compile(r'^\$(\w+)\s*=(?!=)')
+    _assign_re = re.compile(r'^(?:\$)?(\w+)\s*=(?!=)')
 
     lines = source.split("\n")
     result: dict[str, str] = {}
