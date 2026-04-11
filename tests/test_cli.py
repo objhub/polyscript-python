@@ -84,6 +84,49 @@ class TestCLIBasic:
         assert "No geometry to export" in captured.out
 
 
+class TestCLIVerbose:
+    """Test CLI -v / --verbose option."""
+
+    def test_verbose_output(self, tmp_path, capsys):
+        """-v should print bbox, volume, and topology."""
+        src = tmp_path / "test.poly"
+        src.write_text("box 10 10 10")
+        out = tmp_path / "out.stl"
+        with patch("sys.argv", ["poly", str(src), "-o", str(out), "-v"]):
+            main()
+        captured = capsys.readouterr()
+        assert "bbox:" in captured.out
+        assert "volume:" in captured.out
+        assert "topology:" in captured.out
+        assert "faces" in captured.out
+        assert "edges" in captured.out
+        assert "vertices" in captured.out
+
+    def test_verbose_with_output(self, tmp_path, capsys):
+        """-v -o should print info and export file."""
+        src = tmp_path / "test.poly"
+        src.write_text("box 10 10 10")
+        out = tmp_path / "out.stl"
+        with patch("sys.argv", ["poly", str(src), "-v", "-o", str(out)]):
+            main()
+        assert out.exists()
+        assert out.stat().st_size > 0
+        captured = capsys.readouterr()
+        assert "bbox:" in captured.out
+        assert "Exported:" in captured.out
+
+    def test_verbose_not_shown_without_flag(self, tmp_path, capsys):
+        """Without -v, no B-Rep info should be printed."""
+        src = tmp_path / "test.poly"
+        src.write_text("box 10 10 10")
+        out = tmp_path / "out.stl"
+        with patch("sys.argv", ["poly", str(src), "-o", str(out)]):
+            main()
+        captured = capsys.readouterr()
+        assert "bbox:" not in captured.out
+        assert "volume:" not in captured.out
+
+
 class TestCLIErrors:
     """Test CLI error handling."""
 

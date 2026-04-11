@@ -18,6 +18,10 @@ def main():
         "-o", "--output",
         help="Output file (.stl, .step, or .py). Default: ./<input>.stl",
     )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Print B-Rep info (bbox, volume, topology)",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -45,6 +49,14 @@ def main():
             if result is None:
                 print("No geometry to export (library-only file)")
             else:
+                if args.verbose:
+                    from .ocp_kernel import shape_info
+                    info = shape_info(result._shape)
+                    bbox = info["bbox"]
+                    topo = info["topology"]
+                    print(f"bbox: {bbox['min']} - {bbox['max']}")
+                    print(f"volume: {info['volume']:.2f}")
+                    print(f"topology: {topo['faces']} faces, {topo['edges']} edges, {topo['vertices']} vertices")
                 export(result, str(output_path))
                 print(f"Exported: {output_path}")
 

@@ -764,3 +764,16 @@ class TestMirrorCodegen:
     def test_codegen_mirror_z(self):
         code = compile_source('box 10 10 10 | mirror "Z"')
         assert '.mirror("XY")' in code
+
+
+class TestImplicit2DAt:
+    def test_pipe_rect_at(self):
+        code = compile_source("box 100 100 100 center:false | faces front | rect 10 10 at: 20 20")
+        assert ".center(20, 20)" in code
+        # center should appear before rect
+        assert code.index(".center(20, 20)") < code.index(".rect(10, 10")
+
+    def test_pipe_circle_at(self):
+        code = compile_source("box 50 50 10 | faces top | circle 5 at: 10 10")
+        assert ".center(10, 10)" in code
+        assert code.index(".center(10, 10)") < code.index(".circle(5")

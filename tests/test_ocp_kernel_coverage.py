@@ -7,7 +7,7 @@ from polyscript.ocp_kernel import (
     _make_plane, _face_center, _face_normal, _edge_center, _edge_direction,
     _get_faces, _get_edges, _get_vertices, _select_items,
     _bb_dims, _BoundingBox, _ValWrapper, Wire, exporters, ExportTypes,
-    Workplane,
+    Workplane, shape_info,
 )
 
 
@@ -828,3 +828,32 @@ class TestPerpendicularZSelectorAccuracy:
         # (top, bottom, left, right -- normals not along Y)
         assert selected._selected_faces is not None
         assert len(selected._selected_faces) == 4
+
+
+# ---------------------------------------------------------------------------
+# shape_info
+# ---------------------------------------------------------------------------
+
+class TestShapeInfo:
+    def test_shape_info_box(self):
+        """shape_info for a 10x10x10 box: volume ~1000, 6 faces, 12 edges, 8 vertices."""
+        wp = cq.Workplane("XY").box(10, 10, 10)
+        info = shape_info(wp._shape)
+        assert abs(info["volume"] - 1000.0) < 1.0
+        topo = info["topology"]
+        assert topo["faces"] == 6
+        assert topo["edges"] == 12
+        assert topo["vertices"] == 8
+        # bbox should span from -5 to 5 on each axis (centered)
+        bbox = info["bbox"]
+        for i in range(3):
+            assert abs(bbox["min"][i] - (-5.0)) < 0.01
+            assert abs(bbox["max"][i] - 5.0) < 0.01
+
+    def test_shape_info_cylinder(self):
+        """shape_info for a cylinder r=5 h=10: volume ~pi*25*10, 3 faces."""
+        wp = cq.Workplane("XY").cylinder(5, 10)
+        info = shape_info(wp._shape)
+        expected_volume = math.pi * 25 * 10
+        assert abs(info["volume"] - expected_volume) < 1.0
+        assert info["topology"]["faces"] == 3

@@ -319,6 +319,36 @@ def _bb_dims(shape: TopoDS_Shape) -> tuple[float, float, float]:
     return (xmax - xmin, ymax - ymin, zmax - zmin)
 
 
+def shape_info(shape: TopoDS_Shape) -> dict:
+    """Return B-Rep info (bbox, volume, topology) for a shape."""
+    from OCP.TopTools import TopTools_IndexedMapOfShape
+    from OCP.TopExp import TopExp
+
+    bb = _bounding_box(shape)
+    xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
+
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape, props)
+    volume = props.Mass()
+
+    face_map = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_FACE, face_map)
+    edge_map = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_EDGE, edge_map)
+    vert_map = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_VERTEX, vert_map)
+
+    return {
+        "bbox": {"min": [xmin, ymin, zmin], "max": [xmax, ymax, zmax]},
+        "volume": volume,
+        "topology": {
+            "faces": face_map.Extent(),
+            "edges": edge_map.Extent(),
+            "vertices": vert_map.Extent(),
+        },
+    }
+
+
 def _make_wire_from_points(points: list[gp_Pnt], close: bool = False) -> TopoDS_Wire:
     builder = BRepBuilderAPI_MakeWire()
     for i in range(len(points) - 1):

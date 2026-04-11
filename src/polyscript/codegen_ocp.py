@@ -962,6 +962,15 @@ class OCPCodegen:
 
     def _gen_implicit_2d(self, current: str, op: ast.Implicit2DPrimitive) -> str:
         prim = op.primitive
+        # Insert .center(x, y) before the 2D primitive if at: is specified
+        if hasattr(prim, 'at') and prim.at is not None:
+            at = prim.at
+            if isinstance(at, ast.TupleLit):
+                vals = [self._gen_expr(v) for v in at.values]
+                current = f'{current}.center({vals[0]}, {vals[1]})'
+            else:
+                v = self._gen_expr(at)
+                current = f'{current}.center({v}, 0)'
         if isinstance(prim, ast.Rect):
             w = self._gen_expr(prim.width)
             h = self._gen_expr(prim.height)
