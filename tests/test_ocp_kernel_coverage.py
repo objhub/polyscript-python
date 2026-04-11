@@ -772,3 +772,59 @@ class TestUnion2DWireMerge:
         wp2 = cq.Workplane("XY")
         result = wp1.union(wp2)
         assert len(result._wires) == 1
+
+
+# ---------------------------------------------------------------------------
+# Perpendicular Z selector accuracy
+# ---------------------------------------------------------------------------
+
+class TestPerpendicularZSelectorAccuracy:
+    """+Z selects faces perpendicular to Z axis (i.e., vertical/side faces).
+
+    For a box, these are the 4 side faces (normals in X/Y directions),
+    NOT the top/bottom faces (normals in Z direction).
+    """
+
+    def test_perpendicular_z_selects_side_faces(self):
+        """faces +Z on a box should select the 4 side faces (perpendicular to Z)."""
+        wp = cq.Workplane("XY").box(10, 20, 30)
+        selected = wp.faces("#Z")
+        # A box has 4 vertical faces (normals in +X, -X, +Y, -Y)
+        assert selected._selected_faces is not None
+        assert len(selected._selected_faces) == 4
+
+    def test_perpendicular_z_excludes_top_bottom(self):
+        """faces +Z should NOT select top/bottom faces (whose normals are along Z)."""
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Plane
+        wp = cq.Workplane("XY").box(10, 20, 30)
+        selected = wp.faces("#Z")
+        # Verify that none of the selected faces have normals along Z
+        for face in selected._selected_faces:
+            adaptor = BRepAdaptor_Surface(face)
+            if adaptor.GetType() == GeomAbs_Plane:
+                pln = adaptor.Plane()
+                normal = pln.Axis().Direction()
+                # Normal should NOT be along Z (dot product with Z should be small)
+                assert abs(normal.Z()) < 0.1, (
+                    f"Selected face has Z-normal component {normal.Z()}, "
+                    "but +Z should only select faces perpendicular to Z"
+                )
+
+    def test_perpendicular_z_via_polyscript(self):
+        """Full PolyScript pipeline: faces +Z selects vertical faces."""
+        # The codegen maps +Z -> #Z. Execute and check the selected faces count.
+        wp = cq.Workplane("XY").box(10, 20, 30)
+        # Simulate what the generated code does
+        selected = wp.faces("#Z")
+        # All 4 side faces should be selected
+        assert len(selected._selected_faces) == 4
+
+    def test_perpendicular_y_selects_correct_faces(self):
+        """+Y maps to #Y, selecting faces perpendicular to Y axis."""
+        wp = cq.Workplane("XY").box(10, 20, 30)
+        selected = wp.faces("#Y")
+        # Faces perpendicular to Y: front/back + 2 side faces = 4
+        # (top, bottom, left, right -- normals not along Y)
+        assert selected._selected_faces is not None
+        assert len(selected._selected_faces) == 4

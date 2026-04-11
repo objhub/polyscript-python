@@ -1,7 +1,10 @@
 """Tests for pipe operations."""
 
 import pytest
-from polyscript.executor import compile_source
+from polyscript.executor import compile_source, execute
+from polyscript.parser import parse
+from polyscript.transformer import transform
+from polyscript import ast_nodes as ast
 from polyscript.errors import CodegenError
 
 
@@ -620,3 +623,144 @@ class TestImplicit3DPrimitive:
         code = compile_source("rect 100 100 | verts | sphere 5 | fillet 1")
         assert "place_3d_at_points" in code
         assert ".fillet(1)" in code
+
+
+class TestLoftCodegen:
+    """Codegen tests for loft -- no OCP runtime needed."""
+
+    def test_loft_basic(self):
+        """circle | loft [rect] height -- generates .loft() call."""
+        code = compile_source("circle 10 | loft [rect 8 8] 20")
+        assert ".loft(" in code
+        assert ".circle(10)" in code
+        assert ".rect(8, 8)" in code
+        assert "20" in code
+
+    def test_loft_multiple_sections(self):
+        """circle | loft [rect, circle] height."""
+        code = compile_source("circle 10 | loft [rect 8 8, circle 3] 30")
+        assert ".loft(" in code
+        assert ".rect(8, 8)" in code
+        assert ".circle(3)" in code
+
+    def test_loft_ruled(self):
+        """circle | loft [rect] h ruled:true -- generates ruled=True."""
+        code = compile_source("circle 10 | loft [rect 8 8] 20 ruled:true")
+        assert "ruled=True" in code
+
+    def test_loft_explicit_heights(self):
+        """circle | loft [rect, circle] [10, 20] -- explicit offset list."""
+        code = compile_source("circle 10 | loft [rect 8 8, circle 3] [10, 25]")
+        assert "heights=" in code
+
+
+class TestLoftExecution:
+    """OCP execution tests for loft."""
+
+    def test_loft_circle_to_rect(self):
+        """Loft from a circle to a rect produces a valid solid."""
+        result = execute("circle 10 | loft [rect 8 8] 20")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # Height should be approximately 20
+        assert abs(bb.zlen - 20) < 1.0
+        # Width/height should be at least 8 (the rect) and at most 20 (diameter of circle)
+        assert bb.xlen >= 7
+        assert bb.ylen >= 7
+
+    def test_loft_multiple_sections(self):
+        """Loft through multiple sections produces a valid solid."""
+        result = execute("circle 10 | loft [rect 8 8, circle 3] 30")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.zlen - 30) < 1.0
+
+    def test_loft_ruled(self):
+        """Loft with ruled:true produces a valid solid."""
+        result = execute("circle 10 | loft [rect 8 8] 20 ruled:true")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.zlen - 20) < 1.0
+
+    def test_loft_rect_to_circle(self):
+        """Loft from a rect base to a circle top."""
+        result = execute("rect 20 20 | loft [circle 5] 15")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.zlen - 15) < 1.0
+        # Base should be at least 20x20
+        assert bb.xlen >= 10
+        assert bb.ylen >= 10
+
+
+class TestExtrudeDraftExecution:
+    """Test that extrude with draft:N actually executes successfully.
+
+    Note: the current ocp_kernel.extrude() accepts taper= but does not
+    apply it (straight extrusion). We test that the execution does not
+    crash and produces a valid solid.
+    """
+
+    def test_extrude_draft_basic(self):
+        """rect | extrude 15 draft:5 produces a valid solid."""
+        result = execute("rect 60 40 | extrude 15 draft:5")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # Height should be 15
+        assert abs(bb.zlen - 15) < 0.5
+        # Base should be at least 60x40
+        assert bb.xlen >= 30
+        assert bb.ylen >= 20
+
+    def test_extrude_draft_circle(self):
+        """circle | extrude 10 draft:3 produces a valid solid."""
+        result = execute("circle 20 | extrude 10 draft:3")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.zlen - 10) < 0.5
+
+    def test_extrude_draft_on_face(self):
+        """Extrude with draft on a selected face."""
+        result = execute("box 80 60 10 | faces >Z | circle 10 | extrude 20 draft:5")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # The extruded circle on top should make height > 10
+        assert bb.zlen > 10
+
+
+class TestMirrorAST:
+    def test_parse_mirror_x(self):
+        tree = parse('box 10 10 10 | mirror "X"')
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        assert isinstance(pipeline, ast.Pipeline)
+        assert isinstance(pipeline.operations[0], ast.Mirror)
+        assert pipeline.operations[0].axis == "X"
+
+    def test_parse_mirror_y(self):
+        tree = parse('box 10 10 10 | mirror "Y"')
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        assert isinstance(pipeline.operations[0], ast.Mirror)
+        assert pipeline.operations[0].axis == "Y"
+
+    def test_parse_mirror_z(self):
+        tree = parse('box 10 10 10 | mirror "Z"')
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        assert isinstance(pipeline.operations[0], ast.Mirror)
+        assert pipeline.operations[0].axis == "Z"
+
+
+class TestMirrorCodegen:
+    def test_codegen_mirror_x(self):
+        code = compile_source('box 10 10 10 | mirror "X"')
+        assert '.mirror("YZ")' in code
+
+    def test_codegen_mirror_y(self):
+        code = compile_source('box 10 10 10 | mirror "Y"')
+        assert '.mirror("XZ")' in code
+
+    def test_codegen_mirror_z(self):
+        code = compile_source('box 10 10 10 | mirror "Z"')
+        assert '.mirror("XY")' in code

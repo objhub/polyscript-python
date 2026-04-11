@@ -2,6 +2,7 @@
 
 import pytest
 from polyscript.executor import compile_source, execute
+from polyscript import ast_nodes as ast
 
 
 # ---------------------------------------------------------------------------
@@ -221,3 +222,110 @@ class TestNamedArgs:
     def test_helix_kwargs(self):
         code = compile_source("helix 5 30 10")
         assert 'makeHelix(pitch=5, height=30, radius=10)' in code
+
+
+# ---------------------------------------------------------------------------
+# Compound pipeline E2E
+# ---------------------------------------------------------------------------
+
+class TestCompoundPipelineE2E:
+    """End-to-end execution of compound pipelines.
+
+    These pipelines previously only had codegen tests.
+    """
+
+    def test_box_fillet_shell(self):
+        """box | fillet | shell -- classic enclosure pattern."""
+        result = execute("box 80 60 10 | fillet 2 | faces >Z | shell 1")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # Fillet can slightly expand the bounding box, so use generous tolerance
+        assert abs(bb.xlen - 80) < 3.0
+        assert abs(bb.ylen - 60) < 3.0
+        assert abs(bb.zlen - 10) < 3.0
+
+    def test_box_faces_rect_cut(self):
+        """box | faces | rect | cut -- 2D cut on a face."""
+        result = execute(
+            'box 80 60 10 | faces >Z | rect 40 20 | cut'
+        )
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 80) < 0.5
+        assert abs(bb.ylen - 60) < 0.5
+
+    def test_box_faces_circle_extrude(self):
+        """box | faces >Z | circle | extrude -- boss on top face."""
+        result = execute(
+            'box 80 60 10 | faces >Z | circle 10 | extrude 5'
+        )
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert bb.zlen > 10  # box + extruded boss
+
+    def test_box_edges_chamfer(self):
+        """box | edges =Z | chamfer -- chamfer vertical edges."""
+        result = execute("box 80 60 10 | edges =Z | chamfer 2")
+        assert result._shape is not None
+
+    def test_multiline_pipeline(self):
+        """Multi-line pipeline with fillet, edges, chamfer, shell."""
+        source = (
+            "box 80 60 10\n"
+            " | edges <Z | fillet 2\n"
+            " | edges >Z | chamfer 1\n"
+        )
+        result = execute(source)
+        assert result._shape is not None
+
+    def test_diff_with_translated_shape(self):
+        """box | diff cylinder at:position."""
+        result = execute("box 50 50 10 | diff cylinder 5 10 at:(15, 15, 0)")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 50) < 0.5
+
+    def test_variable_assignment_and_pipeline(self):
+        """Variable assignment used in a pipeline."""
+        source = "$w = 80\n$h = 60\n$d = 10\nbox $w $h $d | fillet 2"
+        result = execute(source)
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert bb.xlen > 70  # fillet reduces dimensions slightly
+
+    def test_faces_workplane_circle_cut_depth(self):
+        """box | faces >Z | workplane | circle | cut depth."""
+        result = execute(
+            'box 80 60 10 | faces >Z | workplane | circle 10 | cut 3'
+        )
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 80) < 0.5
+        assert abs(bb.zlen - 10) < 0.5
+
+    def test_rect_verts_sphere_e2e(self):
+        """rect | verts | sphere -- 3D primitives at vertex positions."""
+        result = execute("rect 100 100 | verts | sphere 5")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # Spheres at corners of 100x100 rect with radius 5
+        assert bb.xlen > 100
+        assert bb.ylen > 100
+
+    def test_box_faces_rect_verts_circle_cut(self):
+        """Full vertex-based hole pattern."""
+        result = execute(
+            'box 80 60 10 | faces ">Z" | rect 70 50 | verts | circle 1 | cut'
+        )
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 80) < 0.5
+        # Should have more than 6 faces (original box + holes)
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopAbs import TopAbs_FACE
+        face_count = 0
+        exp = TopExp_Explorer(result._shape, TopAbs_FACE)
+        while exp.More():
+            face_count += 1
+            exp.Next()
+        assert face_count > 6

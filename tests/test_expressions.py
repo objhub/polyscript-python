@@ -2,7 +2,10 @@
 
 import math
 import pytest
-from polyscript.executor import compile_source
+from polyscript.executor import compile_source, execute
+from polyscript.parser import parse
+from polyscript.transformer import transform
+from polyscript import ast_nodes as ast
 
 
 class TestArithmetic:
@@ -151,3 +154,39 @@ class TestTuplesAndLists:
     def test_list(self):
         code = compile_source("$x = [(0, 0), (10, 5), (20, 0)]\nbox 1 1 1")
         assert '[(0, 0), (10, 5), (20, 0)]' in code
+
+
+class TestGreedySumLevel:
+    """Greedy arguments allow addition/subtraction (+/-) in expressions."""
+
+    def test_fillet_addition(self):
+        """fillet 2 + 1 should be fillet(3)."""
+        result = execute("box 80 60 10 | fillet 2 + 1")
+        assert result._shape is not None
+
+    def test_fillet_subtraction(self):
+        """fillet 4 - 1 should be fillet(3)."""
+        result = execute("box 80 60 10 | fillet 4 - 1")
+        assert result._shape is not None
+
+    def test_box_arg_with_addition(self):
+        """box 10 5 + 3 20 should be box(10, 8, 20)."""
+        result = execute("box 10 5 + 3 20")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 10) < 0.5
+        assert abs(bb.ylen - 8) < 0.5
+        assert abs(bb.zlen - 20) < 0.5
+
+    def test_fillet_unary_minus_still_works(self):
+        """fillet -1 should still parse as fillet(-1) (unary minus)."""
+        tree = parse("box 10 10 10 | fillet -1")
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        fillet_node = pipeline.operations[0]
+        assert isinstance(fillet_node, ast.Fillet)
+
+    def test_chamfer_with_addition(self):
+        """chamfer 1 + 1 should be chamfer(2)."""
+        result = execute("box 80 60 10 | edges =Z | chamfer 1 + 1")
+        assert result._shape is not None

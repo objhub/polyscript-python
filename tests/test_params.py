@@ -450,3 +450,114 @@ class TestEdgeCases:
         assert names == ["w", "h", "d", "r"]
         assert result.params[0].group == "Size"
         assert result.params[3].step == 0.1
+
+
+# ---------------------------------------------------------------------------
+# @param label option
+# ---------------------------------------------------------------------------
+
+class TestParamLabelOption:
+    """Test that @param label:"Width" is correctly parsed."""
+
+    def test_parse_label(self):
+        opts = parse_param_options('label:"Width"')
+        assert opts["label"] == "Width"
+
+    def test_parse_label_with_range(self):
+        opts = parse_param_options('1..100 label:"Box Width"')
+        assert opts["min"] == 1
+        assert opts["max"] == 100
+        assert opts["label"] == "Box Width"
+
+    def test_parse_label_with_desc(self):
+        opts = parse_param_options('label:"Width" desc:"The width of the box"')
+        assert opts["label"] == "Width"
+        assert opts["desc"] == "The width of the box"
+
+    def test_extract_params_with_label(self):
+        source = '@param 1..200 label:"Width"\n$w = 80'
+        result = extract_params(source)
+        assert len(result.params) == 1
+        p = result.params[0]
+        assert p.name == "w"
+        assert p.default == 80
+        assert p.min == 1
+        assert p.max == 200
+        # label is stored in the annotation options but not in ParamInfo fields
+        # Verify it appears in the parsed annotation
+        tree = parse(source)
+        program = transform(tree)
+        assignments = [s for s in program.statements if isinstance(s, ast.Assignment)]
+        assert assignments[0].annotation.options["label"] == "Width"
+
+
+# ---------------------------------------------------------------------------
+# @param $-less variable name matching
+# ---------------------------------------------------------------------------
+
+class TestParamNoDollarMatching:
+    """Test that @param works with variables without $ prefix.
+
+    The SPEC shows examples like:
+        @param 10..200 step:5 desc:"Box width"
+        width = 80
+    """
+
+    def test_parse_no_dollar_variable(self):
+        """@param before 'width = 80' (no $) should attach annotation."""
+        source = '@param 1..100\nwidth = 80'
+        tree = parse(source)
+        program = transform(tree)
+        assignments = [s for s in program.statements if isinstance(s, ast.Assignment)]
+        assert len(assignments) == 1
+        assert assignments[0].name == "width"
+        assert assignments[0].annotation is not None
+        assert assignments[0].annotation.options["min"] == 1
+
+    def test_extract_params_no_dollar(self):
+        """extract_params recognises 'width = 80' as a parameter."""
+        source = '@param 10..200 step:5 desc:"Box width"\nwidth = 80'
+        result = extract_params(source)
+        assert len(result.params) == 1
+        p = result.params[0]
+        assert p.name == "width"
+        assert p.default == 80
+        assert p.min == 10
+        assert p.max == 200
+        assert p.step == 5
+        assert p.desc == "Box width"
+
+    def test_mixed_dollar_and_no_dollar(self):
+        """Mix of $ and non-$ variables both get @param annotations."""
+        source = (
+            '@param 1..200\n'
+            '$w = 80\n'
+            '@param 1..100\n'
+            'h = 60\n'
+        )
+        result = extract_params(source)
+        assert len(result.params) == 2
+        assert result.params[0].name == "w"
+        assert result.params[1].name == "h"
+
+    def test_codegen_no_dollar_with_override(self):
+        """Override a non-$ variable via compile_source overrides."""
+        source = '@param 1..200\nwidth = 80\nbox width 60 10'
+        code = compile_source(source, overrides={"width": 120})
+        assert "width = 120" in code
+
+    def test_spec_example_style(self):
+        """Match the SPEC example style: case_w = 100 with @param."""
+        source = (
+            '@param 40..200 step:5 desc:"Case width"\n'
+            'case_w = 100\n'
+            '@param 30..150 step:5 desc:"Case depth"\n'
+            'case_d = 60\n'
+        )
+        result = extract_params(source)
+        assert len(result.params) == 2
+        assert result.params[0].name == "case_w"
+        assert result.params[0].default == 100
+        assert result.params[0].desc == "Case width"
+        assert result.params[1].name == "case_d"
+        assert result.params[1].default == 60
