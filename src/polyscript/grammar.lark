@@ -15,9 +15,9 @@ import_stmt: "import" ESCAPED_STRING
 
 func_def: "def" NAME "(" params ")" "=" pipeline_stmt
 params: (func_param ("," func_param)*)?
-func_param: "$"? NAME
+func_param: DOLLAR_NAME | NAME
 
-assignment: "$"? NAME "=" pipeline_stmt
+assignment: (DOLLAR_NAME | NAME) "=" pipeline_stmt
 
 pipeline_stmt: expr
 
@@ -38,9 +38,11 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 // This prevents "NAME -expr" from being parsed as func_call with negative arg
 // instead of binary subtraction.
 ?func_greedy_val: func_greedy_sum
+// Binary - is excluded from greedy sums to avoid ambiguity:
+// "box 10 -5 10" must parse as box(10, -5, 10), not box(sub(10,5), 10).
+// Binary subtraction in greedy context requires parens: fillet (10 - 3).
 ?func_greedy_sum: func_greedy_product
                 | func_greedy_sum "+" product -> add
-                | func_greedy_sum "-" product -> sub
 ?func_greedy_product: greedy_power
                     | func_greedy_product "*" unary -> mul
                     | func_greedy_product "/" unary -> div
@@ -52,9 +54,10 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 
 ?greedy_val: greedy_sum
 
+// Binary - is excluded: "0 -5" must be two args (0, neg(5)), not sub(0, 5).
+// Use parens for subtraction in greedy: fillet (10 - 3).
 ?greedy_sum: greedy_product
            | greedy_sum "+" product -> add
-           | greedy_sum "-" product -> sub
 
 // Greedy product: like product but atom level excludes "(" expr ")" and tuple.
 // Parenthesized expressions enter greedy args only via paren_arg.
@@ -71,7 +74,7 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
 ?greedy_atom: NUMBER          -> number
             | ESCAPED_STRING  -> string_lit
             | SELECTOR        -> selector_lit
-            | "$" NAME        -> dollar_var_ref
+            | DOLLAR_NAME     -> dollar_var_ref
             | "pi"            -> pi_const
             | "true"          -> true_const
             | "false"         -> false_const
@@ -85,7 +88,7 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
         | "points" "grid" greedy_args        -> points_grid
         | "points" greedy_args               -> points_select
         | "workplane" greedy_args            -> workplane_op
-        | "as" "$" NAME                      -> as_tag
+        | "as" DOLLAR_NAME                   -> as_tag
         | "fillet" greedy_args               -> fillet
         | "chamfer" greedy_args              -> chamfer
         | "shell" greedy_args                -> shell_op
@@ -123,11 +126,11 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
         | "grid" greedy_args                 -> pipe_grid
         | "polar" greedy_args                -> pipe_polar
 
-as_clause: "as" "$" NAME
+as_clause: "as" DOLLAR_NAME
 
 
 bracket_expr: "[" _bracket_body "]"
-            | "[" _bracket_nl expr "for" "$"? NAME "in" "range" "(" expr ")" _bracket_nl "]" -> list_comp_expr
+            | "[" _bracket_nl expr "for" (DOLLAR_NAME | NAME) "in" "range" "(" expr ")" _bracket_nl "]" -> list_comp_expr
 _bracket_body: _bracket_nl
              | _bracket_nl bracket_items _bracket_nl
 bracket_items: bracket_items "," _bracket_nl expr
@@ -170,7 +173,7 @@ arg: NAME ":" expr    -> kwarg
 ?atom_expr: NUMBER          -> number
           | ESCAPED_STRING  -> string_lit
           | SELECTOR        -> selector_lit
-          | "$" NAME        -> dollar_var_ref
+          | DOLLAR_NAME     -> dollar_var_ref
           | "pi"            -> pi_const
           | "true"          -> true_const
           | "false"         -> false_const
@@ -218,8 +221,12 @@ tuple: "(" expr "," expr ("," expr)* ")"
 // and resolved to selectors in the transformer.
 SELECTOR: /[><=+][XYZ]/
 
+// DOLLAR_NAME matches $identifier where the identifier can be any word including keywords.
+// This allows $offset, $box, $scale etc. to be valid variable names.
+DOLLAR_NAME: /\$[a-zA-Z_]\w*/
+
 // NAME excludes all keywords to prevent greedy-arg consumption of structural tokens
-NAME: /(?!(?:box|cylinder|sphere|cone|torus|rect|circle|ellipse|polyline|polygon|text|line|arc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
+NAME: /(?!(?:box|cylinder|sphere|cone|torus|wedge|rect|circle|ellipse|polyline|polygon|text|line|arc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|loft|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
 _MOVE: /move(?!to\b)/
 
 %import common.NUMBER

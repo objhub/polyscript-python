@@ -13,6 +13,12 @@ _SELECTOR_NAME_ALIASES = {"top", "bottom", "right", "left", "front", "back"}
 class PolyTransformer(LarkTransformer):
     """Transform Lark parse tree into PolyScript AST nodes."""
 
+    @staticmethod
+    def _strip_dollar(name: str) -> str:
+        """Strip leading '$' from DOLLAR_NAME tokens."""
+        s = str(name)
+        return s[1:] if s.startswith("$") else s
+
     # --- Top level ---
 
     def start(self, items):
@@ -32,10 +38,10 @@ class PolyTransformer(LarkTransformer):
         return [str(t) for t in items]
 
     def func_param(self, items):
-        return str(items[0])
+        return self._strip_dollar(items[0])
 
     def assignment(self, items):
-        return ast.Assignment(name=str(items[0]), value=items[1])
+        return ast.Assignment(name=self._strip_dollar(items[0]), value=items[1])
 
     def pipeline_stmt(self, items):
         return items[0]
@@ -65,7 +71,7 @@ class PolyTransformer(LarkTransformer):
         return ast.VarRef(name=str(items[0]))
 
     def dollar_var_ref(self, items):
-        return ast.VarRef(name=str(items[0]), dollar=True)
+        return ast.VarRef(name=self._strip_dollar(items[0]), dollar=True)
 
     # --- 3D Primitives ---
 
@@ -229,7 +235,7 @@ class PolyTransformer(LarkTransformer):
     # --- Pipe Operations ---
 
     def as_clause(self, items):
-        return str(items[0])
+        return self._strip_dollar(items[0])
 
     def _select_op(self, items, cls):
         """Helper for faces/edges/vertices select with greedy_args + optional as_clause."""
@@ -317,7 +323,7 @@ class PolyTransformer(LarkTransformer):
         return ast.Workplane(plane=plane)
 
     def as_tag(self, items):
-        return ast.AsTag(name=str(items[0]))
+        return ast.AsTag(name=self._strip_dollar(items[0]))
 
     def fillet(self, items):
         args, kwargs = self._split_args(items[0])
@@ -682,7 +688,7 @@ class PolyTransformer(LarkTransformer):
         return ast.ListComp(expr=items[0], var=str(items[1]), iter_expr=items[2])
 
     def list_comp_expr(self, items):
-        return ast.ListComp(expr=items[0], var=str(items[1]), iter_expr=items[2])
+        return ast.ListComp(expr=items[0], var=self._strip_dollar(items[1]), iter_expr=items[2])
 
     def func_call(self, items):
         name = str(items[0])
