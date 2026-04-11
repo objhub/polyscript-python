@@ -417,11 +417,11 @@ class TestSelectorSyntax:
 
     def test_faces_front(self):
         code = compile_source('box 10 10 10 | faces front')
-        assert ".faces('>Y')" in code
+        assert ".faces('<Y')" in code
 
     def test_faces_back(self):
         code = compile_source('box 10 10 10 | faces back')
-        assert ".faces('<Y')" in code
+        assert ".faces('>Y')" in code
 
     def test_edges_top(self):
         code = compile_source('box 10 10 10 | edges top')

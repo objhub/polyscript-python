@@ -42,7 +42,7 @@ _MATH_ALIASES = {"rad": "radians", "deg": "degrees"}
 _SELECTOR_NAME_ALIASES = {
     "top": ">Z", "bottom": "<Z",
     "right": ">X", "left": "<X",
-    "front": ">Y", "back": "<Y",
+    "front": "<Y", "back": ">Y",
 }
 
 # Selector symbol mapping: PolyScript symbol -> CadQuery selector symbol
@@ -62,7 +62,7 @@ def _selector_to_cadquery(sel: str) -> str:
         "=Z"   -> "|Z"
         "+Z"   -> "#Z"
         "top"  -> ">Z"
-        "front" -> ">Y"
+        "front" -> "<Y"
     """
     # Resolve name aliases first
     if sel in _SELECTOR_NAME_ALIASES:
