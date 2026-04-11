@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import math
 import warnings
-from copy import copy
-from typing import Sequence
 
 from OCP.gp import (
     gp_Pnt, gp_Vec, gp_Dir, gp_Ax1, gp_Ax2, gp_Ax3, gp_Pln, gp_Trsf,
@@ -32,20 +30,16 @@ from OCP.BRepBuilderAPI import (
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Edge, TopoDS_Wire, TopoDS, TopoDS_Builder, TopoDS_Compound
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX
-from OCP.TopLoc import TopLoc_Location
 from OCP.BRep import BRep_Tool
 from OCP.BRepBndLib import BRepBndLib
 from OCP.Bnd import Bnd_Box
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.GC import GC_MakeArcOfCircle
-from OCP.Geom import Geom_Plane
-from OCP.GeomAPI import GeomAPI_PointsToBSpline, GeomAPI_Interpolate
+from OCP.GeomAPI import GeomAPI_PointsToBSpline
 from OCP.TopTools import TopTools_ListOfShape
-from OCP.TColgp import TColgp_Array1OfPnt, TColgp_HArray1OfPnt
-from OCP.ShapeAnalysis import ShapeAnalysis_FreeBounds
+from OCP.TColgp import TColgp_Array1OfPnt
 from OCP.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve, BRepAdaptor_CompCurve
-from OCP.GeomAbs import GeomAbs_Plane
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +388,6 @@ def _make_ellipse_wire(rx: float, ry: float, plane: gp_Pln, cx: float = 0, cy: f
         elips = gp_Elips(ax2, rx, ry)
     else:
         # gp_Elips requires major >= minor, so rotate
-        xd = _plane_xdir(plane)
         yd = _plane_ydir(plane)
         ax2_rot = gp_Ax2(center, _plane_normal(plane), gp_Dir(yd.X(), yd.Y(), yd.Z()))
         elips = gp_Elips(ax2_rot, ry, rx)

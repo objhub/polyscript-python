@@ -2,7 +2,7 @@
 
 import math
 
-from lark import Transformer as LarkTransformer, Token, Tree
+from lark import Transformer as LarkTransformer
 
 from . import ast_nodes as ast
 

@@ -43,7 +43,7 @@ def main():
         else:
             result = execute(source, source_dir=source_dir)
             if result is None:
-                print(f"No geometry to export (library-only file)")
+                print("No geometry to export (library-only file)")
             else:
                 export(result, str(output_path))
                 print(f"Exported: {output_path}")

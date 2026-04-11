@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import enum
-import math
 from . import ast_nodes as ast
 from .colors import resolve_color
 from .errors import CodegenError
@@ -113,15 +112,15 @@ class OCPCodegen:
                 shape_vars.append(var)
 
         if len(shape_vars) > 1:
-            self._emit(f"")
+            self._emit("")
             self._emit(f"_result = {shape_vars[0]}")
             for v in shape_vars[1:]:
                 self._emit(f"_result = _result.union({v})")
         elif len(shape_vars) == 1:
-            self._emit(f"")
+            self._emit("")
             self._emit(f"_result = {shape_vars[0]}")
         else:
-            self._emit(f"_result = None")
+            self._emit("_result = None")
 
         return "\n".join(self.lines)
 
@@ -544,7 +543,7 @@ class OCPCodegen:
     # --- Sketch ---
 
     def _gen_sketch(self, node: ast.SketchExpr) -> str:
-        return self._gen_sketch_segments(f'cq.Workplane("XY")', node)
+        return self._gen_sketch_segments('cq.Workplane("XY")', node)
 
     def _gen_sketch_segments(self, current: str, node: ast.SketchExpr) -> str:
         """Generate sketch(...) call with segments on the given workplane expression."""

@@ -152,7 +152,6 @@ def execute(
     # If the result is a list of shapes, union them into a single shape
     # (PolyScript spec: multiple top-level shapes are implicitly unioned)
     if isinstance(result, list):
-        from .ocp_kernel import Workplane as _WP
         merged = None
         for item in result:
             if item is None:
@@ -173,5 +172,5 @@ def export(result, output_path: str):
     if result is None:
         return  # library-only file, nothing to export
 
-    from .ocp_kernel import exporters, ExportTypes
+    from .ocp_kernel import exporters
     exporters.export(result, str(path), path.suffix.lower())

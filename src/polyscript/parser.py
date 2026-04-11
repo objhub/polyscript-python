@@ -82,7 +82,6 @@ def _preprocess_with_mapping(source: str) -> tuple[str, dict[int, int]]:
     # Apply each continuation rule, tracking line origins
 
     # Rule 1: line ending with | continues to next line
-    p_pipe_end = re.compile(r"\|\s*$(?P<repl>)", flags=0)
     # Custom handling: replace trailing | with "| " and join
     new_lines: list[str] = []
     new_origins: list[int] = []
