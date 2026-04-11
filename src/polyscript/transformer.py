@@ -172,6 +172,8 @@ class PolyTransformer(LarkTransformer):
         return ast.Polygon(
             n=args[0] if len(args) > 0 else kwargs.get("n"),
             r=args[1] if len(args) > 1 else kwargs.get("r"),
+            angle=kwargs.get("angle"),
+            at=kwargs.get("at"),
         )
 
     def text_prim(self, items):
@@ -474,6 +476,8 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit2DPrimitive(primitive=ast.Polygon(
             n=args[0] if len(args) > 0 else kwargs.get("n"),
             r=args[1] if len(args) > 1 else kwargs.get("r"),
+            angle=kwargs.get("angle"),
+            at=kwargs.get("at"),
         ))
 
     def pipe_text(self, items):

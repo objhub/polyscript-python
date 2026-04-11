@@ -1603,10 +1603,11 @@ class Workplane:
         return self._array_placement(points)
 
     def rotate(self, center, axis, angle):
-        if self._shape is None:
+        if self._shape is None and not self._wires:
             return self
-        shape = _rotate_shape(self._shape, center, axis, float(angle))
-        return self._copy(_shape=shape)
+        shape = _rotate_shape(self._shape, center, axis, float(angle)) if self._shape is not None else None
+        wires = [TopoDS.Wire_s(_rotate_shape(w, center, axis, float(angle))) for w in self._wires] if self._wires else []
+        return self._copy(_shape=shape, _wires=wires)
 
     def scale(self, sx, sy=None, sz=None, center=(0, 0, 0)):
         if self._shape is None:

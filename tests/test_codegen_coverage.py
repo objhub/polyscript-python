@@ -66,7 +66,7 @@ class TestPointsListLit:
             ' | hole 3'
         )
         assert 'pushPoints' in code
-        assert '.hole(3 * 2)' in code
+        assert '.hole(3)' in code
 
 
 class TestSweep:

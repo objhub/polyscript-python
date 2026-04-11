@@ -61,7 +61,7 @@ box 100 60 40
         assert '.fillet(1)' in code
         assert '.circle(4)' in code
         assert '.cutThruAll()' in code
-        assert '.hole(3 * 2)' in code
+        assert '.hole(3)' in code
         assert '.rarray(' in code
 
 
@@ -85,7 +85,7 @@ $base = box 100 100 5
  | circle 4 | cut"""
         code = compile_source(source)
         assert 'def plate(size):' in code
-        assert '.hole(4 * 2)' in code
+        assert '.hole(4)' in code
         assert 'plate(40' in code
         assert '.cutThruAll()' in code
 
@@ -148,11 +148,11 @@ class TestWorkplanePlane:
 
 class TestHoleRadius:
     def test_hole_radius_codegen(self):
-        """SPEC: hole 5 = radius 5 hole. Codegen should pass diameter to CadQuery."""
+        """SPEC: hole 5 = radius 5 hole. Codegen should pass radius to kernel."""
         code = compile_source(
             'box 20 20 10 | faces >Z | workplane | hole 5'
         )
-        assert '.hole(5 * 2)' in code
+        assert '.hole(5)' in code
 
     def test_hole_radius_ocp(self):
         """Verify actual hole radius in OCP backend."""
@@ -187,7 +187,7 @@ class TestHoleFromFaceSelection:
         code = compile_source(
             'box 80 60 10 | faces >Z | points (polar 4 15) | hole 5'
         )
-        assert '.hole(5 * 2)' in code
+        assert '.hole(5)' in code
 
 
 # ---------------------------------------------------------------------------

@@ -212,6 +212,8 @@ class Polyline(Node):
 class Polygon(Node):
     n: Node | None = None
     r: Node | None = None
+    angle: Node | None = None
+    at: Node | None = None
 
 
 @dataclass

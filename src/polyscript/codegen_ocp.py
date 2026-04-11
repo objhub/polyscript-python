@@ -543,7 +543,9 @@ class OCPCodegen:
     def _gen_polygon(self, node: ast.Polygon) -> str:
         n = self._gen_expr(node.n)
         r = self._gen_expr(node.r)
-        return f'cq.Workplane("XY").polygon({n}, {r})'
+        code = f'cq.Workplane("XY").polygon({n}, {r})'
+        code = self._gen_angle_kwarg(code, node.angle)
+        return self._gen_at_kwarg(code, node.at)
 
     def _gen_text(self, node: ast.Text) -> str:
         content = self._gen_expr(node.content)
@@ -758,8 +760,8 @@ class OCPCodegen:
             return f'{current}.holeOnFaces({r})'
         if op.depth:
             depth = self._gen_expr(op.depth)
-            return f'{current}.hole({r} * 2, {depth})'
-        return f'{current}.hole({r} * 2)'
+            return f'{current}.hole({r}, {depth})'
+        return f'{current}.hole({r})'
 
     def _gen_cut(self, current: str, op: ast.Cut) -> str:
         if op.depth:
@@ -962,6 +964,10 @@ class OCPCodegen:
 
     def _gen_implicit_2d(self, current: str, op: ast.Implicit2DPrimitive) -> str:
         prim = op.primitive
+        # Insert .transformed(rotate=(0, 0, angle)) before the 2D primitive if angle: is specified
+        if hasattr(prim, 'angle') and prim.angle is not None:
+            angle = self._gen_expr(prim.angle)
+            current = f'{current}.transformed(rotate=(0, 0, {angle}))'
         # Insert .center(x, y) before the 2D primitive if at: is specified
         if hasattr(prim, 'at') and prim.at is not None:
             at = prim.at
@@ -1097,6 +1103,15 @@ class OCPCodegen:
                 return f'({placed} if hasattr({var}, "translate") else {var})'
             return var
         return code
+
+    # --- Angle Rotation (Z-axis) ---
+
+    def _gen_angle_kwarg(self, shape_code: str, angle_node: ast.Node | None) -> str:
+        """Apply angle: kwarg Z-axis rotation if present."""
+        if angle_node is None:
+            return shape_code
+        angle = self._gen_expr(angle_node)
+        return f'{shape_code}.rotate((0,0,0), (0,0,1), {angle})'
 
     # --- At Placement ---
 

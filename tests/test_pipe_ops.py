@@ -135,13 +135,13 @@ class TestCutHole:
         code = compile_source(
             'cylinder 30 5 | faces >Z | workplane | points (polar 4 10) | hole 3'
         )
-        assert '.hole(3 * 2)' in code
+        assert '.hole(3)' in code
 
     def test_hole_with_depth(self):
         code = compile_source(
             'cylinder 30 5 | faces >Z | workplane | hole 3 depth:5'
         )
-        assert '.hole(3 * 2, 5)' in code
+        assert '.hole(3, 5)' in code
 
     def test_hole_from_face_selection(self):
         """FaceSelection -> hole: generates holeOnFaces(radius)."""
