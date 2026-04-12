@@ -322,7 +322,8 @@ class PolyTransformer(LarkTransformer):
             return ast.Workplane(plane=None)
         args, kwargs = self._split_args(items[0])
         plane = args[0].value if args and isinstance(args[0], ast.StringLit) else None
-        return ast.Workplane(plane=plane)
+        origin = kwargs.get("origin")
+        return ast.Workplane(plane=plane, origin=origin)
 
     def as_tag(self, items):
         return ast.AsTag(name=self._strip_dollar(items[0]))

@@ -188,6 +188,18 @@ class TestSelection:
         code = compile_source('box 50 50 10 | faces >Z | workplane')
         assert '.workplane()' in code
 
+    def test_workplane_origin_3d(self):
+        code = compile_source('box 80 60 10 | faces >Z | workplane origin: 0 0 0')
+        assert '.workplane(origin=(0, 0, 0))' in code
+
+    def test_workplane_origin_2d(self):
+        code = compile_source('box 80 60 10 | faces >Z | workplane origin: 10 20')
+        assert '.workplane(origin=(10, 20))' in code
+
+    def test_workplane_origin_with_plane(self):
+        code = compile_source('box 50 50 10 | faces >Z | workplane "XZ" origin: 0 0 0')
+        assert 'origin=(0, 0, 0)' in code
+
     def test_points_polar(self):
         code = compile_source(
             'cylinder 30 5 | faces >Z | workplane | points (polar 6 20)'

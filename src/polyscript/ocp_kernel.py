@@ -392,6 +392,17 @@ def _to_3d(plane: gp_Pln, x: float, y: float) -> gp_Pnt:
     )
 
 
+def _project_to_2d(plane: gp_Pln, x: float, y: float, z: float) -> tuple[float, float]:
+    """Project a 3D world point onto *plane*, returning local 2D (u, v)."""
+    o = _plane_origin(plane)
+    xd = _plane_xdir(plane)
+    yd = _plane_ydir(plane)
+    dx, dy, dz = x - o.X(), y - o.Y(), z - o.Z()
+    u = dx * xd.X() + dy * xd.Y() + dz * xd.Z()
+    v = dx * yd.X() + dy * yd.Y() + dz * yd.Z()
+    return (u, v)
+
+
 def _make_rect_wire(w: float, h: float, plane: gp_Pln, cx: float = 0, cy: float = 0) -> TopoDS_Wire:
     hw, hh = w / 2, h / 2
     pts = [
@@ -1009,7 +1020,7 @@ class Workplane:
 
     # --- Workplane ---
 
-    def workplane(self, plane=None):
+    def workplane(self, plane=None, origin=None):
         if self._selected_faces:
             face = self._selected_faces[0]
             center = _face_center(face)
@@ -1022,6 +1033,20 @@ class Workplane:
                 mag2 = cross.X()**2 + cross.Y()**2 + cross.Z()**2
                 xdir = gp_Dir(cross.X(), cross.Y(), cross.Z()) if mag2 > 1e-12 else gp_Dir(1, 0, 0)
             new_plane = gp_Pln(gp_Ax3(center, normal, xdir))
+            if origin is not None:
+                if len(origin) == 2:
+                    # 2D: interpret as world coordinates along the plane's local axes.
+                    # Map (x, y) to the 3D world point x*xDir + y*yDir (missing axis = 0).
+                    xd = _plane_xdir(new_plane)
+                    yd = _plane_ydir(new_plane)
+                    wx = origin[0] * xd.X() + origin[1] * yd.X()
+                    wy = origin[0] * xd.Y() + origin[1] * yd.Y()
+                    wz = origin[0] * xd.Z() + origin[1] * yd.Z()
+                    u, v = _project_to_2d(new_plane, wx, wy, wz)
+                else:
+                    u, v = _project_to_2d(new_plane, origin[0], origin[1], origin[2])
+                new_origin = _to_3d(new_plane, u, v)
+                new_plane = gp_Pln(gp_Ax3(new_origin, normal, xdir))
             return self._copy(
                 _plane=new_plane, _wires=[], _selected_faces=[], _selected_edges=[],
                 _center_x=0, _center_y=0, _points=None,

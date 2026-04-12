@@ -687,13 +687,14 @@ class OCPCodegen:
     }
 
     def _gen_workplane(self, current: str, op: ast.Workplane) -> str:
+        origin_arg = f'origin={self._gen_expr(op.origin)}' if op.origin else ''
         if op.plane:
             rotation = self._PLANE_ROTATIONS.get(op.plane)
             if rotation:
-                return f'{current}.workplane().transformed(rotate={rotation})'
-            # XY or unknown plane: just use default workplane
-            return f'{current}.workplane()'
-        return f'{current}.workplane()'
+                wp = f'{current}.workplane({origin_arg})' if origin_arg else f'{current}.workplane()'
+                return f'{wp}.transformed(rotate={rotation})'
+            return f'{current}.workplane({origin_arg})'
+        return f'{current}.workplane({origin_arg})'
 
     def _gen_as_tag(self, current: str, op: ast.AsTag) -> str:
         return f'{current}.tag("{op.name}")'

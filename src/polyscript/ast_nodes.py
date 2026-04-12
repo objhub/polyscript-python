@@ -318,6 +318,7 @@ class PointsSelect(Node):
 @dataclass
 class Workplane(Node):
     plane: str | None = None
+    origin: Node | None = None
 
 
 @dataclass

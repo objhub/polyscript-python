@@ -166,6 +166,22 @@ class TestOCPSelection:
         bb = result.val().BoundingBox()
         assert bb.zlen > 10  # extruded above the box
 
+    def test_workplane_origin_3d(self):
+        """workplane origin: 0 0 0 shifts the origin to world-origin projection."""
+        result = execute(
+            'box 80 60 10 center:false | faces >Z | workplane origin: 0 0 0 | circle 3 | extrude 5',
+        )
+        bb = result.val().BoundingBox()
+        # Circle at world (0,0) on the top face → extruded cylinder starts near x=0,y=0
+        assert bb.xmin < 0  # cylinder extends to negative x from origin
+
+    def test_workplane_origin_2d(self):
+        """workplane origin: x y offsets origin in face-local coords."""
+        result = execute(
+            'box 80 60 10 | faces >Z | workplane origin: 20 10 | circle 3 | extrude 5',
+        )
+        assert result._shape is not None
+
 
 # ---------------------------------------------------------------------------
 # Cut operations
