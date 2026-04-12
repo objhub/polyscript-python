@@ -705,7 +705,13 @@ class OCPCodegen:
 
     def _gen_offset(self, current: str, op: ast.Offset) -> str:
         d = self._gen_expr(op.distance)
-        return f'{current}.offset({d})'
+        kwargs = []
+        if op.join_type:
+            kwargs.append(f'join_type="{op.join_type}"')
+        if op.cap:
+            kwargs.append(f'cap="{op.cap}"')
+        extra = ", " + ", ".join(kwargs) if kwargs else ""
+        return f'{current}.offset({d}{extra})'
 
     def _gen_diff(self, current: str, op: ast.Diff) -> str:
         if isinstance(op.shape, ast.ListLit):

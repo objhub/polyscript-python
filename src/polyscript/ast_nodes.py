@@ -344,6 +344,8 @@ class Shell(Node):
 @dataclass
 class Offset(Node):
     distance: Node | None = None
+    join_type: str | None = None  # "arc", "miter", "tangent"
+    cap: str | None = None  # "round" (default), "square"
 
 
 @dataclass

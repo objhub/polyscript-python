@@ -22,7 +22,7 @@ from OCP.BRepPrimAPI import (
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet, BRepFilletAPI_MakeChamfer
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections
-from OCP.BRepTools import BRepTools
+from OCP.BRepTools import BRepTools, BRepTools_WireExplorer
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_Transform,
@@ -40,6 +40,7 @@ from OCP.GeomAPI import GeomAPI_PointsToBSpline
 from OCP.TopTools import TopTools_ListOfShape
 from OCP.TColgp import TColgp_Array1OfPnt
 from OCP.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve, BRepAdaptor_CompCurve
+from OCP.GeomAbs import GeomAbs_Arc, GeomAbs_Tangent, GeomAbs_Intersection
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +1187,13 @@ class Workplane:
         shape = mk.Shape()
         return self._copy(_shape=shape, _selected_faces=[], _selected_edges=[])
 
-    def offset(self, distance):
+    _JOIN_TYPE_MAP = {
+        "arc": GeomAbs_Arc,
+        "miter": GeomAbs_Intersection,
+        "tangent": GeomAbs_Tangent,
+    }
+
+    def offset(self, distance, join_type=None, cap=None):
         """2D wire offset.
 
         Works in two contexts:
@@ -1195,20 +1202,28 @@ class Workplane:
         2. 2D context -- offsets existing wires on the current workplane.
 
         Positive distance = outward, negative = inward.
+        join_type: "arc" (default, round), "miter" (square), "tangent".
+        cap: "round" (default), "square" (perpendicular end caps for open wires).
         """
         distance = float(distance)
+        jt = self._JOIN_TYPE_MAP.get(join_type, GeomAbs_Arc) if join_type else GeomAbs_Arc
+
+        def _do_offset(wire):
+            mk = BRepOffsetAPI_MakeOffset()
+            mk.Init(jt)
+            mk.AddWire(wire)
+            mk.Perform(distance)
+            offset_wire = TopoDS.Wire_s(mk.Shape())
+            if cap == "square" and not wire.Closed():
+                return self._trim_round_caps(wire, offset_wire, distance)
+            return offset_wire
 
         # Face selection context: extract outer wire, create workplane, offset
         if self._selected_faces:
             face = self._selected_faces[0]
             outer_wire = BRepTools.OuterWire_s(face)
-            # Create workplane from the face
             wp_state = self.workplane()
-            # Offset the extracted wire
-            mk = BRepOffsetAPI_MakeOffset()
-            mk.AddWire(outer_wire)
-            mk.Perform(distance)
-            offset_wire = TopoDS.Wire_s(mk.Shape())
+            offset_wire = _do_offset(outer_wire)
             return wp_state._copy(_wires=[offset_wire])
 
         # 2D context: offset existing wires
@@ -1216,13 +1231,72 @@ class Workplane:
             warnings.warn("offset: no wires or selected faces in context")
             return self
 
-        new_wires = []
-        for wire in self._wires:
-            mk = BRepOffsetAPI_MakeOffset()
-            mk.AddWire(wire)
-            mk.Perform(distance)
-            new_wires.append(TopoDS.Wire_s(mk.Shape()))
+        new_wires = [_do_offset(wire) for wire in self._wires]
         return self._copy(_wires=new_wires)
+
+    @staticmethod
+    def _trim_round_caps(wire, offset_wire, distance):
+        """Trim round caps from offset wire using boolean cut, returning square-capped wire."""
+        import math
+        # Extract ordered vertices from wire
+        explorer = BRepTools_WireExplorer(wire)
+        points = []
+        while explorer.More():
+            v = explorer.CurrentVertex()
+            p = BRep_Tool.Pnt_s(v)
+            points.append((p.X(), p.Y(), p.Z()))
+            explorer.Next()
+        # Add the last vertex
+        v = explorer.CurrentVertex()
+        p = BRep_Tool.Pnt_s(v)
+        last = (p.X(), p.Y(), p.Z())
+        if not points or abs(last[0] - points[-1][0]) > 1e-8 or abs(last[1] - points[-1][1]) > 1e-8:
+            points.append(last)
+
+        n = len(points)
+        d = abs(distance)
+        z = points[0][2]
+        big = d * 4
+
+        # Start tangent (inward)
+        sdx = points[1][0] - points[0][0]
+        sdy = points[1][1] - points[0][1]
+        slen = math.sqrt(sdx * sdx + sdy * sdy)
+        stx, sty = sdx / slen, sdy / slen
+
+        # End tangent (inward)
+        edx = points[n - 1][0] - points[n - 2][0]
+        edy = points[n - 1][1] - points[n - 2][1]
+        elen = math.sqrt(edx * edx + edy * edy)
+        etx, ety = edx / elen, edy / elen
+
+        def _make_rect_face(cx, cy, tx, ty):
+            """Make a rectangular face covering the cap area outside the endpoint."""
+            pts = [
+                gp_Pnt(cx - tx * big - ty * big, cy - ty * big + tx * big, z),
+                gp_Pnt(cx - tx * big + ty * big, cy - ty * big - tx * big, z),
+                gp_Pnt(cx            + ty * big, cy            - tx * big, z),
+                gp_Pnt(cx            - ty * big, cy            + tx * big, z),
+            ]
+            edges = []
+            for i in range(4):
+                edges.append(BRepBuilderAPI_MakeEdge(pts[i], pts[(i + 1) % 4]).Edge())
+            builder = BRepBuilderAPI_MakeWire()
+            for e in edges:
+                builder.Add(e)
+            return BRepBuilderAPI_MakeFace(builder.Wire()).Face()
+
+        face = BRepBuilderAPI_MakeFace(offset_wire).Face()
+        start_cut = _make_rect_face(points[0][0], points[0][1], stx, sty)
+        end_cut = _make_rect_face(points[n - 1][0], points[n - 1][1], -etx, -ety)
+        face = BRepAlgoAPI_Cut(face, start_cut).Shape()
+        face = BRepAlgoAPI_Cut(face, end_cut).Shape()
+
+        # Extract outer wire from result
+        exp = TopExp_Explorer(face, TopAbs_FACE)
+        if exp.More():
+            return BRepTools.OuterWire_s(TopoDS.Face_s(exp.Current()))
+        return BRepTools.OuterWire_s(TopoDS.Face_s(face))
 
     # --- Boolean ---
 

@@ -343,7 +343,9 @@ class PolyTransformer(LarkTransformer):
 
     def offset_op(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.Offset(distance=args[0] if args else None)
+        join_type = kwargs["join"].value if "join" in kwargs else None
+        cap = kwargs["cap"].value if "cap" in kwargs else None
+        return ast.Offset(distance=args[0] if args else None, join_type=join_type, cap=cap)
 
     def diff(self, items):
         return ast.Diff(shape=items[0])
