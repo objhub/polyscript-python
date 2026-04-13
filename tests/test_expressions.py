@@ -130,11 +130,11 @@ class TestIndexAccess:
 class TestMathFunctions:
     def test_sin(self):
         code = compile_source("$x = sin(1)\nbox $x $x $x")
-        assert 'math.sin(1)' in code
+        assert 'math.sin(math.radians(1))' in code
 
     def test_cos(self):
         code = compile_source("$x = cos(0)\nbox $x $x $x")
-        assert 'math.cos(0)' in code
+        assert 'math.cos(math.radians(0))' in code
 
     def test_sqrt(self):
         code = compile_source("$x = sqrt(4)\nbox $x $x $x")
@@ -158,7 +158,7 @@ class TestMathFunctions:
 
     def test_atan2(self):
         code = compile_source("$x = atan2(1, 1)\nbox $x $x $x")
-        assert 'math.atan2(1, 1)' in code
+        assert 'math.degrees(math.atan2(1, 1))' in code
 
 
 class TestConstants:

@@ -343,7 +343,7 @@ class TestOCPExpressions:
         assert abs(bb.zlen - 6) < 0.01
 
     def test_trig(self):
-        result = execute("$x = sin(pi / 6) * 20\nbox $x $x $x")
+        result = execute("$x = sin(30) * 20\nbox $x $x $x")
         bb = result.val().BoundingBox()
         assert abs(bb.xlen - 10) < 0.1
 

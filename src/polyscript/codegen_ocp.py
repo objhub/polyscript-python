@@ -33,9 +33,10 @@ _2D_PRIMITIVE_NAMES = {
 
 
 _MATH_FUNCS = {
-    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
     "sqrt", "radians", "degrees", "floor", "ceil",
 }
+_TRIG_DEG = {"sin", "cos", "tan"}          # deg→rad wrap
+_INVERSE_TRIG_DEG = {"asin", "acos", "atan", "atan2"}  # rad→deg wrap
 _MATH_ALIASES = {"rad": "radians", "deg": "degrees"}
 
 # Selector name aliases -> shorthand notation
@@ -1106,7 +1107,13 @@ class OCPCodegen:
         func_kwargs = {k: v for k, v in node.kwargs.items() if k != "at"}
         kwargs = ", ".join(f"{k}={self._gen_expr(v)}" for k, v in func_kwargs.items())
         all_args = ", ".join(filter(None, [args, kwargs]))
-        code = f"{name}({all_args})"
+        # Trig functions: degree-based
+        if node.name in _TRIG_DEG:
+            code = f"math.{node.name}(math.radians({all_args}))"
+        elif node.name in _INVERSE_TRIG_DEG:
+            code = f"math.degrees(math.{node.name}({all_args}))"
+        else:
+            code = f"{name}({all_args})"
         if at_node is not None:
             # Runtime guard: only apply at: if result is a shape (has .translate)
             var = self._new_var()
