@@ -1152,11 +1152,15 @@ class OCPCodegen:
     def _gen_polar_placement(self, shape_code: str, polar: ast.Polar) -> str:
         n = self._gen_expr(polar.count)
         r = self._gen_expr(polar.radius)
+        if polar.orient:
+            return f'{shape_code}.polar({n}, {r}, orient=True)'
         return f'{shape_code}.polar({n}, {r})'
 
     def _gen_polar_on_face(self, shape_code: str, polar: ast.Polar, ctx: PipelineContext) -> str:
         n = self._gen_expr(polar.count)
         r = self._gen_expr(polar.radius)
+        if polar.orient:
+            return f'{shape_code}.polar({n}, {r}, orient=True)'
         wp = f'{shape_code}.workplane()' if ctx == PipelineContext.FACE_SELECTION else shape_code
         return f'{wp}.pushPoints([({r}*math.cos(2*math.pi*i/{n}), {r}*math.sin(2*math.pi*i/{n})) for i in range({n})])'
 

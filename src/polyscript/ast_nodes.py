@@ -278,6 +278,7 @@ class AtPlacement(Node):
 class Polar(Node):
     count: Node | None = None
     radius: Node | None = None
+    orient: Node | None = None
 
 
 @dataclass

@@ -283,7 +283,8 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         count = args[0] if len(args) > 0 else kwargs.get("count")
         radius = args[1] if len(args) > 1 else kwargs.get("radius")
-        return ast.Polar(count=count, radius=radius)
+        orient = kwargs.get("orient")
+        return ast.Polar(count=count, radius=radius, orient=orient)
 
     def grid_spec(self, items):
         args, kwargs = self._split_args(items[0])
@@ -302,7 +303,8 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         count = args[0] if len(args) > 0 else kwargs.get("count")
         radius = args[1] if len(args) > 1 else kwargs.get("radius")
-        return ast.Polar(count=count, radius=radius)
+        orient = kwargs.get("orient")
+        return ast.Polar(count=count, radius=radius, orient=orient)
 
     def pipe_grid(self, items):
         args, kwargs = self._split_args(items[0])

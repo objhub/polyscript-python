@@ -58,6 +58,17 @@ class TestPipeGridPolar:
         code_kw = compile_source("box 10 10 3 | grid 4 3 pitch:20")
         assert code_pos == code_kw
 
+    def test_pipe_polar_orient(self):
+        """polar with orient:true generates orient=True kwarg."""
+        code = compile_source("cylinder 5 10 | polar 6 15 orient:true")
+        assert '.polar(6, 15, orient=True)' in code
+
+    def test_pipe_polar_no_orient_default(self):
+        """orient not specified keeps existing behavior."""
+        code = compile_source("cylinder 5 10 | polar 6 15")
+        assert '.polar(6, 15)' in code
+        assert 'orient' not in code
+
     def test_pipe_polar_with_chain(self):
         """polar followed by another pipe operator."""
         code = compile_source("box 10 10 3 | polar 4 20 | fillet 1")

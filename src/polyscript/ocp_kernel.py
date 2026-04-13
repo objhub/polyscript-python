@@ -1717,14 +1717,51 @@ class Workplane:
                 points.append((ix * sp - off_x, iy * sp - off_y))
         return self._array_placement(points)
 
-    def polar(self, count, radius):
+    def polar(self, count, radius, orient=False):
         """Replicate in a circular pattern."""
         count, radius = int(count), float(radius)
+        if orient:
+            return self._polar_rotate(count, radius)
         points = []
         for i in range(count):
             angle = 2 * math.pi * i / count
             points.append((radius * math.cos(angle), radius * math.sin(angle)))
         return self._array_placement(points)
+
+    def _polar_rotate(self, count, radius):
+        """Polar replicate with rotation: rotate each copy by i*360/count around Z."""
+        if self._wires:
+            new_wires = []
+            for wire in self._wires:
+                for i in range(count):
+                    angle_deg = 360.0 * i / count
+                    angle_rad = math.radians(angle_deg)
+                    x = radius * math.cos(angle_rad)
+                    y = radius * math.sin(angle_rad)
+                    w = wire
+                    if angle_deg != 0:
+                        w = TopoDS.Wire_s(_rotate_shape(w, (0, 0, 0), (0, 0, 1), angle_deg))
+                    if x != 0 or y != 0:
+                        w = TopoDS.Wire_s(_translate_shape(w, gp_Vec(float(x), float(y), 0)))
+                    new_wires.append(w)
+            return self._copy(_wires=new_wires)
+        if self._shape is not None:
+            builder = TopoDS_Builder()
+            compound = TopoDS_Compound()
+            builder.MakeCompound(compound)
+            for i in range(count):
+                angle_deg = 360.0 * i / count
+                angle_rad = math.radians(angle_deg)
+                x = radius * math.cos(angle_rad)
+                y = radius * math.sin(angle_rad)
+                copy = self._shape
+                if angle_deg != 0:
+                    copy = _rotate_shape(copy, (0, 0, 0), (0, 0, 1), angle_deg)
+                if x != 0 or y != 0:
+                    copy = _translate_shape(copy, gp_Vec(float(x), float(y), 0))
+                builder.Add(compound, copy)
+            return self._copy(_shape=compound)
+        return self
 
     def rotate(self, center, axis, angle):
         if self._shape is None and not self._wires:
