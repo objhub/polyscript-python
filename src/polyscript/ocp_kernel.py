@@ -1571,15 +1571,19 @@ class Workplane:
 
         for cx, cy in offsets:
             center = _to_3d(self._plane, cx, cy)
-            # Create cylinder at center, along negative normal
-            neg_normal = gp_Dir(-normal.X(), -normal.Y(), -normal.Z())
-            ax2 = gp_Ax2(center, neg_normal)
-            cyl = BRepPrimAPI_MakeCylinder(ax2, r, cut_h).Shape()
             if depth is None:
-                # Also extend in positive direction
-                ax2_pos = gp_Ax2(center, normal)
-                cyl_pos = BRepPrimAPI_MakeCylinder(ax2_pos, r, cut_h).Shape()
-                cyl = BRepAlgoAPI_Fuse(cyl, cyl_pos).Shape()
+                # Single centered cylinder to avoid seam edges from fusing two halves
+                start = gp_Pnt(
+                    center.X() - normal.X() * cut_h,
+                    center.Y() - normal.Y() * cut_h,
+                    center.Z() - normal.Z() * cut_h,
+                )
+                ax2 = gp_Ax2(start, normal)
+                cyl = BRepPrimAPI_MakeCylinder(ax2, r, 2 * cut_h).Shape()
+            else:
+                neg_normal = gp_Dir(-normal.X(), -normal.Y(), -normal.Z())
+                ax2 = gp_Ax2(center, neg_normal)
+                cyl = BRepPrimAPI_MakeCylinder(ax2, r, cut_h).Shape()
             new_shape = BRepAlgoAPI_Cut(new_shape, cyl).Shape()
 
         return self._copy(_shape=new_shape, _wires=[], _points=None,
@@ -1606,15 +1610,19 @@ class Workplane:
             center = _face_center(face)
             normal = _face_normal(face)
 
-            # Create cylinder at face center, along negative normal
-            neg_normal = gp_Dir(-normal.X(), -normal.Y(), -normal.Z())
-            ax2 = gp_Ax2(center, neg_normal)
-            cyl = BRepPrimAPI_MakeCylinder(ax2, radius, cut_h).Shape()
             if depth is None:
-                # Also extend in positive direction for through-all
-                ax2_pos = gp_Ax2(center, normal)
-                cyl_pos = BRepPrimAPI_MakeCylinder(ax2_pos, radius, cut_h).Shape()
-                cyl = BRepAlgoAPI_Fuse(cyl, cyl_pos).Shape()
+                # Single centered cylinder to avoid seam edges from fusing two halves
+                start = gp_Pnt(
+                    center.X() - normal.X() * cut_h,
+                    center.Y() - normal.Y() * cut_h,
+                    center.Z() - normal.Z() * cut_h,
+                )
+                ax2 = gp_Ax2(start, normal)
+                cyl = BRepPrimAPI_MakeCylinder(ax2, radius, 2 * cut_h).Shape()
+            else:
+                neg_normal = gp_Dir(-normal.X(), -normal.Y(), -normal.Z())
+                ax2 = gp_Ax2(center, neg_normal)
+                cyl = BRepPrimAPI_MakeCylinder(ax2, radius, cut_h).Shape()
             new_shape = BRepAlgoAPI_Cut(new_shape, cyl).Shape()
 
         return self._copy(_shape=new_shape, _wires=[], _points=None,
