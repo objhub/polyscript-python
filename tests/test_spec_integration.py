@@ -95,20 +95,21 @@ $base = box 100 100 5
 # ---------------------------------------------------------------------------
 
 class TestRevolveAxis:
-    def test_revolve_default_y_axis(self):
-        code = compile_source("circle 5 | revolve 360")
-        assert '.revolve(360)' in code
+    def test_revolve_y_full(self):
+        code = compile_source("circle 5 at:(0, 20) | revolve Y")
+        assert '.revolve(360' in code
+        assert 'axisEnd=(0,1,0)' in code
 
     def test_revolve_x_axis(self):
-        code = compile_source('circle 5 | revolve 180 axis:"X"')
+        code = compile_source('circle 5 at:(0, 20) | revolve X 180')
         assert 'axisEnd=(1,0,0)' in code
 
     def test_revolve_y_axis(self):
-        code = compile_source('circle 5 | revolve 180 axis:"Y"')
+        code = compile_source('circle 5 at:(0, 20) | revolve Y 180')
         assert 'axisEnd=(0,1,0)' in code
 
     def test_revolve_z_axis(self):
-        code = compile_source('circle 5 | revolve 180 axis:"Z"')
+        code = compile_source('circle 5 at:(20, 0) | revolve Z 180')
         assert 'axisEnd=(0,0,1)' in code
 
 

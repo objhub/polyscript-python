@@ -260,6 +260,22 @@ class ArcPath(Node):
 
 
 @dataclass
+class CenterArcPath(Node):
+    """Center arc: end + center, or end + radius."""
+    end: Node | None = None
+    center: Node | None = None
+    radius: Node | None = None  # center or radius is non-None
+    cw: bool = False  # future: clockwise / long-arc flag
+
+
+@dataclass
+class TangentArcPath(Node):
+    """Tangent arc: end, optionally with explicit tangent vector."""
+    end: Node | None = None
+    tangent: Node | None = None  # None = inherit from previous segment
+
+
+@dataclass
 class BezierPath(Node):
     points: Node | None = None
 
@@ -395,8 +411,8 @@ class Extrude(Node):
 
 @dataclass
 class Revolve(Node):
-    degrees: Node | None = None
-    axis: str | None = None
+    axis: str = ""          # 'X' | 'Y' | 'Z'
+    degrees: Node | None = None  # None means 360
 
 
 @dataclass

@@ -209,6 +209,22 @@ class PolyTransformer(LarkTransformer):
     def sketch_arc(self, items):
         return ast.ArcPath(through=items[0], end=items[1])
 
+    def sketch_carc_center(self, items):
+        return ast.CenterArcPath(end=items[0], center=items[1])
+
+    def sketch_carc_radius(self, items):
+        # items: [end_tuple, NAME_token("r"), radius_value]
+        name = str(items[1])
+        if name != "r":
+            raise ValueError(f"carc named arg must be 'r:', got '{name}:'")
+        return ast.CenterArcPath(end=items[0], radius=items[2])
+
+    def sketch_tarc_inherit(self, items):
+        return ast.TangentArcPath(end=items[0])
+
+    def sketch_tarc_explicit(self, items):
+        return ast.TangentArcPath(end=items[0], tangent=items[1])
+
     def sketch_bezier(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.BezierPath(points=args[0] if args else None)
@@ -228,6 +244,25 @@ class PolyTransformer(LarkTransformer):
             through=args[0] if len(args) > 0 else None,
             end=args[1] if len(args) > 1 else None,
         )
+
+    def carc_path(self, items):
+        args, kwargs = self._split_args(items[0])
+        r = kwargs.get("r")
+        if r is not None:
+            return ast.CenterArcPath(
+                end=args[0] if args else None,
+                radius=r,
+            )
+        return ast.CenterArcPath(
+            end=args[0] if len(args) > 0 else None,
+            center=args[1] if len(args) > 1 else None,
+        )
+
+    def tarc_path(self, items):
+        args, kwargs = self._split_args(items[0])
+        if len(args) > 1:
+            return ast.TangentArcPath(end=args[0], tangent=args[1])
+        return ast.TangentArcPath(end=args[0] if args else None)
 
     def bezier_path(self, items):
         args, kwargs = self._split_args(items[0])
@@ -411,11 +446,35 @@ class PolyTransformer(LarkTransformer):
         return ast.Loft(sections=sections, height=height, ruled=ruled)
 
     def revolve(self, items):
+        from .errors import CodegenError
         args, kwargs = self._split_args(items[0])
-        degrees = args[0] if args else None
-        axis_val = kwargs.get("axis")
-        axis = axis_val.value if isinstance(axis_val, ast.StringLit) else None
-        return ast.Revolve(degrees=degrees, axis=axis)
+
+        # No arguments at all: error
+        if not args and not kwargs:
+            raise CodegenError(
+                "revolve requires an axis (X, Y, or Z). "
+                "Example: revolve Y 180"
+            )
+
+        # Reject named-arg syntax (old: axis:"X")
+        if kwargs:
+            raise CodegenError(
+                "revolve no longer accepts named arguments. "
+                "Use: revolve X, revolve Y 180, etc."
+            )
+
+        # First arg must be an axis name (VarRef with name X, Y, or Z)
+        first = args[0]
+        if isinstance(first, ast.VarRef) and first.name in ("X", "Y", "Z"):
+            axis = first.name
+            degrees = args[1] if len(args) > 1 else None
+            return ast.Revolve(axis=axis, degrees=degrees)
+
+        # First arg is a number or other expression — axis is missing
+        raise CodegenError(
+            "revolve expects an axis first. "
+            "Did you mean `revolve Y 360`?"
+        )
 
     def sweep(self, items):
         args, kwargs = self._split_args(items[0])
@@ -788,7 +847,15 @@ class PolyTransformer(LarkTransformer):
 
 def transform(tree) -> ast.Program:
     """Transform a Lark parse tree into PolyScript AST."""
-    program = PolyTransformer().transform(tree)
+    from lark.exceptions import VisitError
+    from .errors import PolyScriptError
+    try:
+        program = PolyTransformer().transform(tree)
+    except VisitError as e:
+        # Unwrap PolyScriptError raised during tree transformation
+        if isinstance(e.orig_exc, PolyScriptError):
+            raise e.orig_exc from None
+        raise
 
     # Attach @param annotations if present (set by parser)
     annotations = getattr(tree, "_param_annotations", {})

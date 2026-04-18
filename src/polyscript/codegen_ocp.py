@@ -221,6 +221,8 @@ class OCPCodegen:
         ast.FuncCall:      "_gen_func_call",
         ast.LinePath:      "_gen_line_path",
         ast.ArcPath:       "_gen_arc_path",
+        ast.CenterArcPath: "_gen_center_arc_path",
+        ast.TangentArcPath: "_gen_tangent_arc_path",
         ast.HelixPath:     "_gen_helix_path",
         ast.BezierPath:    "_gen_bezier_path",
         ast.SplinePath:    "_gen_spline_path",
@@ -246,7 +248,8 @@ class OCPCodegen:
                                ast.Polyline, ast.Polygon, ast.Text,
                                ast.SketchExpr)):
             return PipelineContext.TWO_D
-        if isinstance(source, (ast.LinePath, ast.ArcPath, ast.BezierPath,
+        if isinstance(source, (ast.LinePath, ast.ArcPath, ast.CenterArcPath,
+                               ast.TangentArcPath, ast.BezierPath,
                                ast.HelixPath, ast.SplinePath)):
             return PipelineContext.TWO_D
         if isinstance(source, (ast.Union, ast.Diff, ast.Inter)):
@@ -573,6 +576,21 @@ class OCPCodegen:
                 through = self._gen_expr(seg.through)
                 end = self._gen_expr(seg.end)
                 parts.append(f', ("arc", {through}, {end})')
+            elif isinstance(seg, ast.CenterArcPath):
+                end = self._gen_expr(seg.end)
+                if seg.center is not None:
+                    center = self._gen_expr(seg.center)
+                    parts.append(f', ("carc_center", {end}, {center})')
+                else:
+                    r = self._gen_expr(seg.radius)
+                    parts.append(f', ("carc_radius", {end}, {r})')
+            elif isinstance(seg, ast.TangentArcPath):
+                end = self._gen_expr(seg.end)
+                if seg.tangent is not None:
+                    tangent = self._gen_expr(seg.tangent)
+                    parts.append(f', ("tarc_explicit", {end}, {tangent})')
+                else:
+                    parts.append(f', ("tarc", {end})')
             elif isinstance(seg, ast.BezierPath):
                 pts = self._gen_expr(seg.points)
                 parts.append(f', ("bezier", {pts})')
@@ -587,10 +605,24 @@ class OCPCodegen:
         return f'cq.Workplane("XY").moveTo({s}[0], {s}[1]).lineTo({e}[0], {e}[1])'
 
     def _gen_arc_path(self, node: ast.ArcPath) -> str:
-        # Simplified arc generation
         t = self._gen_expr(node.through)
         e = self._gen_expr(node.end)
-        return f'.threePointArc({t}, {e})'
+        return f'cq.Workplane("XY").moveTo(0, 0).threePointArc(({t})[:2], ({e})[:2])'
+
+    def _gen_center_arc_path(self, node: ast.CenterArcPath) -> str:
+        e = self._gen_expr(node.end)
+        if node.center is not None:
+            c = self._gen_expr(node.center)
+            return f'cq.Workplane("XY").moveTo(0, 0).centerArc(({e})[:2], ({c})[:2])'
+        r = self._gen_expr(node.radius)
+        return f'cq.Workplane("XY").moveTo(0, 0).radiusArc(({e})[:2], {r})'
+
+    def _gen_tangent_arc_path(self, node: ast.TangentArcPath) -> str:
+        e = self._gen_expr(node.end)
+        if node.tangent is not None:
+            t = self._gen_expr(node.tangent)
+            return f'cq.Workplane("XY").moveTo(0, 0).tangentArc(({e})[:2], ({t})[:2])'
+        return f'cq.Workplane("XY").moveTo(0, 0).tangentArc(({e})[:2])'
 
     def _gen_helix_path(self, node: ast.HelixPath) -> str:
         pitch = self._gen_expr(node.pitch)
@@ -815,12 +847,10 @@ class OCPCodegen:
         return f'{current}.extrude({h})'
 
     def _gen_revolve(self, current: str, op: ast.Revolve) -> str:
-        deg = self._gen_expr(op.degrees)
-        if op.axis:
-            axis_map = {"X": "(1,0,0)", "Y": "(0,1,0)", "Z": "(0,0,1)"}
-            end = axis_map.get(op.axis.upper(), "(0,1,0)")
-            return f'{current}.revolve({deg}, axisStart=(0,0,0), axisEnd={end})'
-        return f'{current}.revolve({deg})'
+        deg = self._gen_expr(op.degrees) if op.degrees is not None else "360"
+        axis_map = {"X": "(1,0,0)", "Y": "(0,1,0)", "Z": "(0,0,1)"}
+        end = axis_map.get(op.axis, "(0,1,0)")
+        return f'{current}.revolve({deg}, axisStart=(0,0,0), axisEnd={end})'
 
     def _gen_sweep(self, current: str, op: ast.Sweep) -> str:
         path = self._gen_expr(op.path)

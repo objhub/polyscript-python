@@ -393,6 +393,141 @@ def _to_3d(plane: gp_Pln, x: float, y: float) -> gp_Pnt:
     )
 
 
+def _last_edge_of_wire(wire: TopoDS_Wire) -> TopoDS_Edge:
+    """Return the last edge in a wire."""
+    last = None
+    exp = TopExp_Explorer(wire, TopAbs_EDGE)
+    while exp.More():
+        last = TopoDS.Edge_s(exp.Current())
+        exp.Next()
+    if last is None:
+        raise ValueError("Wire has no edges")
+    return last
+
+
+def _tangent_2d_to_3d(plane: gp_Pln, tx: float, ty: float) -> gp_Vec:
+    """Convert a 2D tangent direction to a 3D vector on *plane*."""
+    xd = _plane_xdir(plane)
+    yd = _plane_ydir(plane)
+    return gp_Vec(
+        tx * xd.X() + ty * yd.X(),
+        tx * xd.Y() + ty * yd.Y(),
+        tx * xd.Z() + ty * yd.Z(),
+    )
+
+
+def _edge_end_tangent(edge: TopoDS_Edge) -> gp_Vec:
+    """Return the tangent vector at the *end* of an edge."""
+    curve = BRepAdaptor_Curve(edge)
+    last_param = curve.LastParameter()
+    pnt = gp_Pnt()
+    vec = gp_Vec()
+    curve.D1(last_param, pnt, vec)
+    if vec.Magnitude() > 1e-12:
+        vec.Normalize()
+    return vec
+
+
+def _make_center_arc_edge(
+    p_start: gp_Pnt, p_end: gp_Pnt, p_center: gp_Pnt, plane: gp_Pln,
+) -> TopoDS_Edge:
+    """Build an arc edge from start, end, center (short-arc, CCW default).
+
+    Uses ``GC_MakeArcOfCircle(gp_Circ, alpha1, alpha2, sense)``.
+    """
+    r_s = p_start.Distance(p_center)
+    r_e = p_end.Distance(p_center)
+    if r_s < 1e-12:
+        raise ValueError("carc: center coincides with start point")
+    if abs(r_s - r_e) / r_s > 0.05:
+        raise ValueError(
+            f"carc: center is not equidistant from start and end "
+            f"(|CS|={r_s:.4f}, |CE|={r_e:.4f})"
+        )
+    r = (r_s + r_e) / 2.0
+
+    normal = _plane_normal(plane)
+    # Reference direction: from center to start
+    ref_dir = gp_Dir(gp_Vec(p_center, p_start))
+    ax2 = gp_Ax2(p_center, normal, ref_dir)
+    circle = gp_Circ(ax2, r)
+
+    # Compute angles of start and end on the circle
+    # alpha1 is 0 by construction (ref_dir = CS)
+    alpha1 = 0.0
+    # For alpha2, compute the signed angle from CS to CE
+    v_cs = gp_Vec(p_center, p_start)
+    v_ce = gp_Vec(p_center, p_end)
+    # angle via atan2 of cross/dot projected onto normal
+    dot = v_cs.Dot(v_ce)
+    cross_vec = v_cs.Crossed(v_ce)
+    cross_sign = cross_vec.X() * normal.X() + cross_vec.Y() * normal.Y() + cross_vec.Z() * normal.Z()
+    alpha2 = math.atan2(cross_sign, dot)
+
+    # Default is short arc: if alpha2 is negative, go CW (sense=False);
+    # if positive, go CCW (sense=True).
+    # For 180 degrees exactly, default to CCW.
+    if abs(alpha2) < 1e-10:
+        raise ValueError("carc: start and end are the same point relative to center")
+    if alpha2 > 0:
+        sense = True  # CCW
+    else:
+        sense = False  # CW
+        alpha2 = -alpha2  # make alpha2 positive for the API
+
+    arc_curve = GC_MakeArcOfCircle(circle, alpha1, alpha2, sense).Value()
+    return BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+
+
+def _make_radius_arc_edge(
+    p_start: gp_Pnt, p_end: gp_Pnt, radius: float, plane: gp_Pln,
+) -> TopoDS_Edge:
+    """Build an arc edge from start, end, radius (short-arc default).
+
+    Computes the center from the chord midpoint, then delegates to
+    ``_make_center_arc_edge``.
+    """
+    d = p_start.Distance(p_end)
+    if d < 1e-12:
+        raise ValueError("carc: start and end are the same point")
+    if d > 2 * radius + 1e-9:
+        raise ValueError(
+            f"carc: chord length ({d:.4f}) > diameter ({2*radius:.4f}), "
+            f"arc cannot be formed"
+        )
+
+    # Midpoint
+    mx = (p_start.X() + p_end.X()) / 2.0
+    my = (p_start.Y() + p_end.Y()) / 2.0
+    mz = (p_start.Z() + p_end.Z()) / 2.0
+
+    # Chord vector and its length
+    chord = gp_Vec(p_start, p_end)
+    half_d = d / 2.0
+
+    # Height from midpoint to center
+    discriminant = radius * radius - half_d * half_d
+    h = math.sqrt(max(discriminant, 0.0))
+
+    # Perpendicular direction: normal x chord
+    normal = _plane_normal(plane)
+    n_vec = gp_Vec(normal.X(), normal.Y(), normal.Z())
+    perp = n_vec.Crossed(chord)
+    perp_mag = perp.Magnitude()
+    if perp_mag < 1e-12:
+        raise ValueError("carc: chord is perpendicular to workplane normal")
+    perp.Normalize()
+
+    # Center for short arc (default): midpoint + h * perp
+    p_center = gp_Pnt(
+        mx + h * perp.X(),
+        my + h * perp.Y(),
+        mz + h * perp.Z(),
+    )
+
+    return _make_center_arc_edge(p_start, p_end, p_center, plane)
+
+
 def _project_to_2d(plane: gp_Pln, x: float, y: float, z: float) -> tuple[float, float]:
     """Project a 3D world point onto *plane*, returning local 2D (u, v)."""
     o = _plane_origin(plane)
@@ -823,12 +958,18 @@ class Workplane:
         Each subsequent argument is a segment descriptor:
           - ``("line", (x, y))`` — straight line to (x, y)
           - ``("arc", (tx, ty), (ex, ey))`` — arc through (tx,ty) to (ex,ey)
+          - ``("carc_center", (ex, ey), (cx, cy))`` — center arc
+          - ``("carc_radius", (ex, ey), r)`` — radius arc
+          - ``("tarc", (ex, ey))`` — tangent arc (inherit from previous)
+          - ``("tarc_explicit", (ex, ey), (tx, ty))`` — tangent arc (explicit)
           - ``("bezier", [(x1,y1), ...])`` — bezier/spline through control points
         The wire is automatically closed and converted to a face.
         """
         cx, cy = self._center_x, self._center_y
         current = _to_3d(self._plane, start[0] + cx, start[1] + cy)
         builder = BRepBuilderAPI_MakeWire()
+        # Track previous tangent vector for tarc inheritance
+        prev_tangent = None  # gp_Vec or None
 
         for seg in segments:
             kind = seg[0]
@@ -839,6 +980,8 @@ class Workplane:
                     continue  # skip zero-length edge
                 edge = BRepBuilderAPI_MakeEdge(current, end_3d).Edge()
                 builder.Add(edge)
+                prev_tangent = gp_Vec(current, end_3d)
+                prev_tangent.Normalize()
                 current = end_3d
             elif kind == "arc":
                 through_2d, end_2d = seg[1], seg[2]
@@ -852,10 +995,56 @@ class Workplane:
                 cross_mag = v1.Crossed(v2).Magnitude()
                 if cross_mag < 1e-6:
                     edge = BRepBuilderAPI_MakeEdge(current, p_end).Edge()
+                    prev_tangent = gp_Vec(current, p_end)
+                    prev_tangent.Normalize()
                 else:
                     arc_curve = GC_MakeArcOfCircle(current, p_through, p_end).Value()
                     edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+                    prev_tangent = _edge_end_tangent(edge)
                 builder.Add(edge)
+                current = p_end
+            elif kind == "carc_center":
+                end_2d, center_2d = seg[1], seg[2]
+                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
+                p_center = _to_3d(self._plane, center_2d[0] + cx, center_2d[1] + cy)
+                if current.Distance(p_end) < 1e-6:
+                    continue
+                edge = _make_center_arc_edge(current, p_end, p_center, self._plane)
+                builder.Add(edge)
+                prev_tangent = _edge_end_tangent(edge)
+                current = p_end
+            elif kind == "carc_radius":
+                end_2d, radius = seg[1], seg[2]
+                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
+                if current.Distance(p_end) < 1e-6:
+                    continue
+                edge = _make_radius_arc_edge(current, p_end, float(radius), self._plane)
+                builder.Add(edge)
+                prev_tangent = _edge_end_tangent(edge)
+                current = p_end
+            elif kind == "tarc":
+                end_2d = seg[1]
+                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
+                if current.Distance(p_end) < 1e-6:
+                    continue
+                if prev_tangent is None:
+                    raise ValueError("tarc cannot be the first segment")
+                arc_curve = GC_MakeArcOfCircle(current, prev_tangent, p_end).Value()
+                edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+                builder.Add(edge)
+                prev_tangent = _edge_end_tangent(edge)
+                current = p_end
+            elif kind == "tarc_explicit":
+                end_2d, tangent_2d = seg[1], seg[2]
+                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
+                if current.Distance(p_end) < 1e-6:
+                    continue
+                # Build tangent vector in 3D from the 2D tangent direction
+                t_vec = _tangent_2d_to_3d(self._plane, tangent_2d[0], tangent_2d[1])
+                arc_curve = GC_MakeArcOfCircle(current, t_vec, p_end).Value()
+                edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+                builder.Add(edge)
+                prev_tangent = _edge_end_tangent(edge)
                 current = p_end
             elif kind == "bezier":
                 pts_2d = seg[1]
@@ -871,6 +1060,7 @@ class Workplane:
                 bspline = GeomAPI_PointsToBSpline(arr).Curve()
                 edge = BRepBuilderAPI_MakeEdge(bspline).Edge()
                 builder.Add(edge)
+                prev_tangent = _edge_end_tangent(edge)
                 current = all_pts[-1]
 
         # Auto-close: add closing edge from last point back to start
@@ -942,6 +1132,74 @@ class Workplane:
             new_wires.append(builder.Wire())
 
         # Update sketch points so subsequent operations know the cursor pos
+        new_pts = list(self._sketch_points)
+        new_pts.append((end[0], end[1]))
+        return self._copy(_wires=new_wires, _sketch_points=new_pts)
+
+    def centerArc(self, end, center):
+        """Center arc from current cursor to *end* with given *center*.
+
+        *end* and *center* are 2D tuples ``(x, y)`` in workplane coordinates.
+        """
+        sx, sy = (self._sketch_points[-1] if self._sketch_points else (0.0, 0.0))
+        cx, cy = self._center_x, self._center_y
+        p_start = _to_3d(self._plane, sx + cx, sy + cy)
+        p_end = _to_3d(self._plane, end[0] + cx, end[1] + cy)
+        p_center = _to_3d(self._plane, center[0] + cx, center[1] + cy)
+        arc_edge = _make_center_arc_edge(p_start, p_end, p_center, self._plane)
+        return self._append_arc_edge(arc_edge, end)
+
+    def radiusArc(self, end, radius):
+        """Radius arc from current cursor to *end* with given *radius*."""
+        sx, sy = (self._sketch_points[-1] if self._sketch_points else (0.0, 0.0))
+        cx, cy = self._center_x, self._center_y
+        p_start = _to_3d(self._plane, sx + cx, sy + cy)
+        p_end = _to_3d(self._plane, end[0] + cx, end[1] + cy)
+        arc_edge = _make_radius_arc_edge(p_start, p_end, float(radius), self._plane)
+        return self._append_arc_edge(arc_edge, end)
+
+    def tangentArc(self, end, tangent_vec=None):
+        """Tangent arc from current cursor to *end*.
+
+        If *tangent_vec* is given (2D tuple), it is used as the tangent direction
+        at the start. Otherwise the tangent from the last edge of the current wire
+        is used.
+        """
+        sx, sy = (self._sketch_points[-1] if self._sketch_points else (0.0, 0.0))
+        cx, cy = self._center_x, self._center_y
+        p_start = _to_3d(self._plane, sx + cx, sy + cy)
+        p_end = _to_3d(self._plane, end[0] + cx, end[1] + cy)
+
+        if tangent_vec is not None:
+            t_vec = _tangent_2d_to_3d(self._plane, tangent_vec[0], tangent_vec[1])
+        else:
+            # Extract tangent from last edge of current wire
+            if not self._wires:
+                raise ValueError("tangentArc: no previous wire to derive tangent from")
+            last_wire = self._wires[-1]
+            last_edge = _last_edge_of_wire(last_wire)
+            t_vec = _edge_end_tangent(last_edge)
+
+        arc_curve = GC_MakeArcOfCircle(p_start, t_vec, p_end).Value()
+        arc_edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+        return self._append_arc_edge(arc_edge, end)
+
+    def _append_arc_edge(self, arc_edge, end):
+        """Append an arc edge to the current wire and update cursor."""
+        new_wires = list(self._wires)
+        if new_wires:
+            last_wire = new_wires[-1]
+            builder = BRepBuilderAPI_MakeWire()
+            exp = TopExp_Explorer(last_wire, TopAbs_EDGE)
+            while exp.More():
+                builder.Add(TopoDS.Edge_s(exp.Current()))
+                exp.Next()
+            builder.Add(arc_edge)
+            new_wires[-1] = builder.Wire()
+        else:
+            builder = BRepBuilderAPI_MakeWire()
+            builder.Add(arc_edge)
+            new_wires.append(builder.Wire())
         new_pts = list(self._sketch_points)
         new_pts.append((end[0], end[1]))
         return self._copy(_wires=new_wires, _sketch_points=new_pts)

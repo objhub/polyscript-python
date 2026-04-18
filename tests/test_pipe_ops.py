@@ -110,12 +110,13 @@ class TestExtrudeRevolveSweep:
         assert '.extrude(15, taper=5)' in code
 
     def test_revolve(self):
-        code = compile_source("circle 20 | revolve 360")
-        assert '.revolve(360)' in code
+        code = compile_source("circle 20 at:(0, 20) | revolve Y")
+        assert '.revolve(360' in code
 
     def test_revolve_with_axis(self):
-        code = compile_source('circle 20 | revolve 360 axis:"X"')
+        code = compile_source('circle 20 at:(0, 20) | revolve X')
         assert '.revolve(360' in code
+        assert 'axisEnd=(1,0,0)' in code
 
 
 class TestCutHole:
