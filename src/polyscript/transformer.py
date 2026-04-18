@@ -207,17 +207,21 @@ class PolyTransformer(LarkTransformer):
     def sketch_line(self, items):
         return items[0]  # TupleLit
 
-    def sketch_arc(self, items):
+    def sketch_arc_3p(self, items):
         return ast.ArcPath(start=items[0], through=items[1], end=items[2])
 
-    def sketch_carc_center(self, items):
-        return ast.CenterArcPath(start=items[0], end=items[1], center=items[2])
+    def sketch_arc_center(self, items):
+        # items: [start_tuple, end_tuple, NAME_token("center"), center_tuple]
+        name = str(items[2])
+        if name != "center":
+            raise ValueError(f"arc named arg must be 'center:', got '{name}:'")
+        return ast.CenterArcPath(start=items[0], end=items[1], center=items[3])
 
-    def sketch_carc_radius(self, items):
+    def sketch_arc_radius(self, items):
         # items: [start_tuple, end_tuple, NAME_token("r"), radius_value]
         name = str(items[2])
         if name != "r":
-            raise ValueError(f"carc named arg must be 'r:', got '{name}:'")
+            raise ValueError(f"arc named arg must be 'r:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
     def sketch_bezier(self, items):
@@ -236,16 +240,19 @@ class PolyTransformer(LarkTransformer):
     def path_line_seg(self, items):
         return ast.LinePath(start=items[0], end=items[1])
 
-    def path_arc_seg(self, items):
+    def path_arc_3p_seg(self, items):
         return ast.ArcPath(start=items[0], through=items[1], end=items[2])
 
-    def path_carc_center_seg(self, items):
-        return ast.CenterArcPath(start=items[0], end=items[1], center=items[2])
+    def path_arc_center_seg(self, items):
+        name = str(items[2])
+        if name != "center":
+            raise ValueError(f"arc named arg must be 'center:', got '{name}:'")
+        return ast.CenterArcPath(start=items[0], end=items[1], center=items[3])
 
-    def path_carc_radius_seg(self, items):
+    def path_arc_radius_seg(self, items):
         name = str(items[2])
         if name != "r":
-            raise ValueError(f"carc named arg must be 'r:', got '{name}:'")
+            raise ValueError(f"arc named arg must be 'r:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
     def path_bezier_seg(self, items):
@@ -279,25 +286,27 @@ class PolyTransformer(LarkTransformer):
 
     def arc_path(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.ArcPath(
-            start=args[0] if len(args) > 0 else None,
-            through=args[1] if len(args) > 1 else None,
-            end=args[2] if len(args) > 2 else None,
-        )
-
-    def carc_path(self, items):
-        args, kwargs = self._split_args(items[0])
+        center = kwargs.get("center")
         r = kwargs.get("r")
+        if center is not None:
+            # arc start end center:(cx,cy)
+            return ast.CenterArcPath(
+                start=args[0] if len(args) > 0 else None,
+                end=args[1] if len(args) > 1 else None,
+                center=center,
+            )
         if r is not None:
+            # arc start end r:radius
             return ast.CenterArcPath(
                 start=args[0] if len(args) > 0 else None,
                 end=args[1] if len(args) > 1 else None,
                 radius=r,
             )
-        return ast.CenterArcPath(
+        # arc start through end (3-point)
+        return ast.ArcPath(
             start=args[0] if len(args) > 0 else None,
-            end=args[1] if len(args) > 1 else None,
-            center=args[2] if len(args) > 2 else None,
+            through=args[1] if len(args) > 1 else None,
+            end=args[2] if len(args) > 2 else None,
         )
 
     def bezier_path(self, items):

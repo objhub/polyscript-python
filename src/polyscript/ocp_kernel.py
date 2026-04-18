@@ -441,10 +441,10 @@ def _make_center_arc_edge(
     r_s = p_start.Distance(p_center)
     r_e = p_end.Distance(p_center)
     if r_s < 1e-12:
-        raise ValueError("carc: center coincides with start point")
+        raise ValueError("arc: center coincides with start point")
     if abs(r_s - r_e) / r_s > 0.05:
         raise ValueError(
-            f"carc: center is not equidistant from start and end "
+            f"arc: center is not equidistant from start and end"
             f"(|CS|={r_s:.4f}, |CE|={r_e:.4f})"
         )
     r = (r_s + r_e) / 2.0
@@ -470,7 +470,7 @@ def _make_center_arc_edge(
         pz = normal.X() * ey - normal.Y() * ex
         plen = math.sqrt(px * px + py * py + pz * pz)
         if plen < 1e-12:
-            raise ValueError("carc: degenerate start/end/center geometry")
+            raise ValueError("arc: degenerate start/end/center geometry")
         k = r / plen
         p_mid = gp_Pnt(p_center.X() + px * k, p_center.Y() + py * k, p_center.Z() + pz * k)
 
@@ -488,10 +488,10 @@ def _make_radius_arc_edge(
     """
     d = p_start.Distance(p_end)
     if d < 1e-12:
-        raise ValueError("carc: start and end are the same point")
+        raise ValueError("arc: start and end are the same point")
     if d > 2 * radius + 1e-9:
         raise ValueError(
-            f"carc: chord length ({d:.4f}) > diameter ({2*radius:.4f}), "
+            f"arc: chord length ({d:.4f}) > diameter ({2*radius:.4f}), "
             f"arc cannot be formed"
         )
 
@@ -514,7 +514,7 @@ def _make_radius_arc_edge(
     perp = n_vec.Crossed(chord)
     perp_mag = perp.Magnitude()
     if perp_mag < 1e-12:
-        raise ValueError("carc: chord is perpendicular to workplane normal")
+        raise ValueError("arc: chord is perpendicular to workplane normal")
     perp.Normalize()
 
     # Center for short arc (default): midpoint + h * perp
@@ -962,8 +962,8 @@ class Workplane:
           - ``("bezier", [(x1,y1), ...])`` — bezier/spline through control points
         The wire is automatically closed and converted to a face.
 
-        For arc/carc segments, ``start`` must match the current pen position
-        (tolerance 1e-6); a mismatch raises ValueError.
+        If a segment's start does not match the current pen position
+        (tolerance 1e-6), an implicit line is inserted to bridge the gap.
         """
         cx, cy = self._center_x, self._center_y
         current = _to_3d(self._plane, start[0] + cx, start[1] + cy)
@@ -986,9 +986,10 @@ class Workplane:
                 start_2d, through_2d, end_2d = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
                 if current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"arc start {start_2d} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
+                    current = p_start
                 p_through = _to_3d(self._plane, through_2d[0] + cx, through_2d[1] + cy)
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
@@ -1011,9 +1012,10 @@ class Workplane:
                 start_2d, end_2d, center_2d = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
                 if current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"carc start {start_2d} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
+                    current = p_start
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 p_center = _to_3d(self._plane, center_2d[0] + cx, center_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
@@ -1026,9 +1028,10 @@ class Workplane:
                 start_2d, end_2d, radius = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
                 if current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"carc start {start_2d} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
+                    current = p_start
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
                     continue
@@ -1069,14 +1072,14 @@ class Workplane:
     # --- Path Literal (open wire) ---
 
     def path(self, start, *segments):
-        """Build an open wire from line/arc/carc/bezier/spline segments.
+        """Build an open wire from line/arc/bezier/spline segments.
 
         Like :meth:`sketch` but does **not** auto-close. Supports both
         2D ``(x, y)`` and 3D ``(x, y, z)`` coordinates.
 
         *start* is a 2D or 3D tuple — the starting point. ``None`` is
         allowed when the first segment carries its own start (e.g. arc,
-        carc, line with explicit start/end).
+        line with explicit start/end).
 
         Segment descriptors:
           - ``("line", (x, y))``             — line to point (2D/3D)
@@ -1086,6 +1089,9 @@ class Workplane:
           - ``("carc_radius", (s), (e), r)`` — radius arc
           - ``("bezier", [(p1), (p2), ...])`` — bezier through points
           - ``("spline", [(p1), (p2), ...])`` — B-spline through points
+
+        If a segment's start does not match the current position
+        (tolerance 1e-6), an implicit line is inserted to bridge the gap.
         """
         cx, cy = self._center_x, self._center_y
 
@@ -1119,9 +1125,9 @@ class Workplane:
                 p_start = _resolve_pt(seg[1])
                 p_end = _resolve_pt(seg[2])
                 if current is not None and current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"line start {seg[1]} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
                 if current is None:
                     current = p_start
                 if p_start.Distance(p_end) < 1e-6:
@@ -1133,9 +1139,9 @@ class Workplane:
                 start_pt, through_pt, end_pt = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
                 if current is not None and current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"arc start {start_pt} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
                 if current is None:
                     current = p_start
                 p_through = _resolve_pt(through_pt)
@@ -1156,9 +1162,9 @@ class Workplane:
                 start_pt, end_pt, center_pt = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
                 if current is not None and current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"carc start {start_pt} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
                 if current is None:
                     current = p_start
                 p_end = _resolve_pt(end_pt)
@@ -1172,9 +1178,9 @@ class Workplane:
                 start_pt, end_pt, radius = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
                 if current is not None and current.Distance(p_start) > 1e-6:
-                    raise ValueError(
-                        f"carc start {start_pt} does not match current position"
-                    )
+                    # Auto-connect with implicit line
+                    bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
+                    builder.Add(bridge)
                 if current is None:
                     current = p_start
                 p_end = _resolve_pt(end_pt)

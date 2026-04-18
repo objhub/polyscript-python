@@ -28,9 +28,9 @@ class TestPathParsing:
         assert isinstance(stmt.start, ast.TupleLit)
         assert len(stmt.segments) == 1
 
-    def test_carc_mixed(self):
-        """path with carc (center) mixed in."""
-        tree = parse("path [(0,0), carc (0,0) (10,10) (10,0)]")
+    def test_arc_center_mixed(self):
+        """path with arc center: mixed in."""
+        tree = parse("path [(0,0), arc (0,0) (10,10) center:(10,0)]")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert isinstance(stmt, ast.PathLiteral)
@@ -40,9 +40,9 @@ class TestPathParsing:
         assert isinstance(seg, ast.CenterArcPath)
         assert seg.center is not None
 
-    def test_carc_radius(self):
-        """path with carc radius mixed in."""
-        tree = parse("path [(0,0), carc (0,0) (10,10) r:5]")
+    def test_arc_radius(self):
+        """path with arc radius mixed in."""
+        tree = parse("path [(0,0), arc (0,0) (10,10) r:5]")
         prog = transform(tree)
         stmt = prog.statements[0]
         seg = stmt.segments[0]
@@ -146,16 +146,16 @@ class TestPathCodegen:
         assert ".path(" in code
         assert '("arc"' in code
 
-    def test_path_carc_center_codegen(self):
+    def test_path_arc_center_codegen(self):
         code = compile_source(
-            "path [(0,0), carc (0,0) (10,10) (10,0)]"
+            "path [(0,0), arc (0,0) (10,10) center:(10,0)]"
         )
         assert ".path(" in code
         assert '("carc_center"' in code
 
-    def test_path_carc_radius_codegen(self):
+    def test_path_arc_radius_codegen(self):
         code = compile_source(
-            "path [(0,0), carc (0,0) (10,10) r:5]"
+            "path [(0,0), arc (0,0) (10,10) r:5]"
         )
         assert ".path(" in code
         assert '("carc_radius"' in code
@@ -235,18 +235,18 @@ class TestPathExecution:
         assert result is not None
         assert len(result._wires) > 0
 
-    def test_path_with_carc_center(self):
+    def test_path_with_arc_center(self):
         from polyscript.executor import execute
         result = execute(
-            "path [(0,0), carc (0,0) (10,0) (5,0)]"
+            "path [(0,0), arc (0,0) (10,0) center:(5,0)]"
         )
         assert result is not None
         assert len(result._wires) > 0
 
-    def test_path_with_carc_radius(self):
+    def test_path_with_arc_radius(self):
         from polyscript.executor import execute
         result = execute(
-            "path [(0,0), carc (0,0) (10,0) r:5]"
+            "path [(0,0), arc (0,0) (10,0) r:5]"
         )
         assert result is not None
         assert len(result._wires) > 0
@@ -278,20 +278,21 @@ class TestPathExecution:
         assert result is not None
         assert result._shape is not None
 
-    def test_path_sweep_with_carc(self):
-        """circle swept along a path with carc."""
+    def test_path_sweep_with_arc_radius(self):
+        """circle swept along a path with arc r:."""
         from polyscript.executor import execute
         result = execute(
-            "circle 2 | sweep (path [(0,0), (10,0), carc (10,0) (15,5) r:5])"
+            "circle 2 | sweep (path [(0,0), (10,0), arc (10,0) (15,5) r:5])"
         )
         assert result is not None
         assert result._shape is not None
 
-    def test_path_continuity_violation(self):
-        """Continuity check: carc start doesn't match previous end."""
+    def test_path_auto_line_on_mismatch(self):
+        """Start mismatch inserts auto-line instead of raising error."""
         from polyscript.executor import execute
-        with pytest.raises(Exception, match="does not match"):
-            execute("path [(0,0), carc (5,5) (10,10) (10,0)]")
+        result = execute("path [(0,0), arc (5,5) (7,3) (10,0)]")
+        assert result is not None
+        assert len(result._wires) > 0
 
     def test_path_as_variable_then_sweep(self):
         """Assign path to variable and use in sweep."""

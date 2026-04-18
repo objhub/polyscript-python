@@ -917,7 +917,7 @@ wheels = [
 
 [[package]]
 name = "polyscript"
-version = "0.0.3"
+version = "0.0.7"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery-ocp" },

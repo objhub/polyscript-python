@@ -247,7 +247,7 @@ class SketchExpr(Node):
 
 @dataclass
 class PathLiteral(Node):
-    """path [...] — open wire from line/arc/carc/bezier/spline segments.
+    """path [...] — open wire from line/arc/bezier/spline segments.
 
     Like sketch but without auto-close. Supports 2D and 3D coordinates.
     """
