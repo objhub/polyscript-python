@@ -83,6 +83,7 @@ class PolyTransformer(LarkTransformer):
             depth=args[2] if len(args) > 2 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def cylinder(self, items):
@@ -92,6 +93,7 @@ class PolyTransformer(LarkTransformer):
             height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def sphere(self, items):
@@ -100,6 +102,7 @@ class PolyTransformer(LarkTransformer):
             radius=args[0] if args else kwargs.get("r"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def cone(self, items):
@@ -113,6 +116,7 @@ class PolyTransformer(LarkTransformer):
             angle=kwargs.get("angle"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def torus(self, items):
@@ -122,6 +126,7 @@ class PolyTransformer(LarkTransformer):
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def wedge(self, items):
@@ -133,6 +138,7 @@ class PolyTransformer(LarkTransformer):
             ltx=args[3] if len(args) > 3 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     # --- 2D Primitives ---
@@ -144,6 +150,7 @@ class PolyTransformer(LarkTransformer):
             height=args[1] if len(args) > 1 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def circle(self, items):
@@ -152,6 +159,7 @@ class PolyTransformer(LarkTransformer):
             radius=args[0] if args else kwargs.get("r"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def ellipse(self, items):
@@ -161,6 +169,7 @@ class PolyTransformer(LarkTransformer):
             ry=args[1] if len(args) > 1 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def polyline_prim(self, items):
@@ -174,6 +183,7 @@ class PolyTransformer(LarkTransformer):
             r=args[1] if len(args) > 1 else kwargs.get("r"),
             angle=kwargs.get("angle"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         )
 
     def text_prim(self, items):
@@ -376,7 +386,9 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         radius = args[0] if args else None
         depth = kwargs.get("depth")
-        return ast.Hole(radius=radius, depth=depth)
+        at = kwargs.get("at")
+        origin = kwargs.get("origin")
+        return ast.Hole(radius=radius, depth=depth, at=at, origin=origin)
 
     def cut(self, items):
         if not items:
@@ -436,11 +448,13 @@ class PolyTransformer(LarkTransformer):
 
     def move_op(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.Move(offset=ast.TupleLit(values=args))
+        origin = kwargs.get("origin")
+        return ast.Move(offset=ast.TupleLit(values=args), origin=origin)
 
     def moveto_op(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.MoveTo(position=ast.TupleLit(values=args))
+        origin = kwargs.get("origin")
+        return ast.MoveTo(position=ast.TupleLit(values=args), origin=origin)
 
     # --- Implicit 2D in pipes ---
 
@@ -451,6 +465,7 @@ class PolyTransformer(LarkTransformer):
             height=args[1] if len(args) > 1 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_circle(self, items):
@@ -459,6 +474,7 @@ class PolyTransformer(LarkTransformer):
             radius=args[0] if args else kwargs.get("r"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_ellipse(self, items):
@@ -468,6 +484,7 @@ class PolyTransformer(LarkTransformer):
             ry=args[1] if len(args) > 1 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_polyline(self, items):
@@ -483,6 +500,7 @@ class PolyTransformer(LarkTransformer):
             r=args[1] if len(args) > 1 else kwargs.get("r"),
             angle=kwargs.get("angle"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_text(self, items):
@@ -509,6 +527,7 @@ class PolyTransformer(LarkTransformer):
             depth=args[2] if len(args) > 2 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_cylinder(self, items):
@@ -518,6 +537,7 @@ class PolyTransformer(LarkTransformer):
             height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_sphere(self, items):
@@ -526,6 +546,7 @@ class PolyTransformer(LarkTransformer):
             radius=args[0] if args else kwargs.get("r"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_cone(self, items):
@@ -539,6 +560,7 @@ class PolyTransformer(LarkTransformer):
             angle=kwargs.get("angle"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_torus(self, items):
@@ -548,6 +570,7 @@ class PolyTransformer(LarkTransformer):
             r2=args[1] if len(args) > 1 else kwargs.get("r2"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     def pipe_wedge(self, items):
@@ -559,6 +582,7 @@ class PolyTransformer(LarkTransformer):
             ltx=args[3] if len(args) > 3 else None,
             center=kwargs.get("center"),
             at=kwargs.get("at"),
+            origin=kwargs.get("origin"),
         ))
 
     # --- Bracket expressions (unified group / list) ---

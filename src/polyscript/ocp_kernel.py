@@ -889,7 +889,7 @@ class Workplane:
     # --- 2D cursor ---
 
     def moveTo(self, x, y):
-        return self._copy(_sketch_points=[(x, y)])
+        return self._copy(_sketch_points=[(x, y)], _center_x=x, _center_y=y)
 
     def lineTo(self, x, y):
         pts = list(self._sketch_points)

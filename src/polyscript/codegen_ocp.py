@@ -409,8 +409,10 @@ class OCPCodegen:
     })
 
     def _gen_pipe_op(self, current: str, op: ast.Node, prev_op: ast.Node | None = None, ctx: PipelineContext = PipelineContext.UNKNOWN) -> str:
-        # Insert implicit workplane when going from Face selection to 2D primitive
-        if isinstance(op, ast.Implicit2DPrimitive) and isinstance(prev_op, ast.FacesSelect):
+        # Insert implicit workplane when going from Face selection to 2D drawing/cursor op
+        if isinstance(prev_op, ast.FacesSelect) and isinstance(
+            op, (ast.Implicit2DPrimitive, ast.Move, ast.MoveTo)
+        ):
             current = f"{current}.workplane()"
 
         handler_name = self._PIPE_DISPATCH.get(type(op))
@@ -470,20 +472,20 @@ class OCPCodegen:
         d = self._gen_expr(node.depth)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").box({w}, {h}, {d}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_cylinder(self, node: ast.Cylinder) -> str:
         h = self._gen_expr(node.height)
         r = self._gen_expr(node.radius)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").cylinder({r}, {h}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_sphere(self, node: ast.Sphere) -> str:
         r = self._gen_expr(node.radius)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").sphere({r}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_cone(self, node: ast.Cone) -> str:
         h = self._gen_expr(node.height)
@@ -498,14 +500,14 @@ class OCPCodegen:
             extras += f", angle={self._gen_expr(node.angle)}"
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").cone({r1}, {r2}, {h}{extras}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_torus(self, node: ast.Torus) -> str:
         r1 = self._gen_expr(node.r1)
         r2 = self._gen_expr(node.r2)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").torus({r1}, {r2}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_wedge(self, node: ast.Wedge) -> str:
         dx = self._gen_expr(node.dx)
@@ -514,7 +516,7 @@ class OCPCodegen:
         ltx = self._gen_expr(node.ltx)
         centered = self._gen_centered_arg(node.center, ndim=3)
         code = f'cq.Workplane("XY").wedge({dx}, {dy}, {dz}, {ltx}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     # --- 2D Primitives ---
 
@@ -523,20 +525,20 @@ class OCPCodegen:
         h = self._gen_expr(node.height)
         centered = self._gen_centered_arg(node.center, ndim=2)
         code = f'cq.Workplane("XY").rect({w}, {h}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_circle(self, node: ast.Circle) -> str:
         r = self._gen_expr(node.radius)
         centered = self._gen_centered_arg(node.center, ndim=2)
         code = f'cq.Workplane("XY").circle({r}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_ellipse(self, node: ast.Ellipse) -> str:
         rx = self._gen_expr(node.rx)
         ry = self._gen_expr(node.ry)
         centered = self._gen_centered_arg(node.center, ndim=2)
         code = f'cq.Workplane("XY").ellipse({rx}, {ry}{centered})'
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_polyline(self, node: ast.Polyline) -> str:
         pts = self._gen_expr(node.points)
@@ -547,7 +549,7 @@ class OCPCodegen:
         r = self._gen_expr(node.r)
         code = f'cq.Workplane("XY").polygon({n}, {r})'
         code = self._gen_angle_kwarg(code, node.angle)
-        return self._gen_at_kwarg(code, node.at)
+        return self._gen_at_kwarg(code, node.at, node.origin)
 
     def _gen_text(self, node: ast.Text) -> str:
         content = self._gen_expr(node.content)
@@ -761,16 +763,43 @@ class OCPCodegen:
 
     def _gen_hole(self, current: str, op: ast.Hole, ctx: PipelineContext = PipelineContext.UNKNOWN) -> str:
         r = self._gen_expr(op.radius)
+        depth_arg = f', {self._gen_expr(op.depth)}' if op.depth else ''
+
+        if op.at is not None:
+            # at: specified -- position the hole explicitly
+            wp = current
+            if ctx == PipelineContext.FACE_SELECTION:
+                wp = f'{current}.workplane()'
+            wp = self._gen_hole_at_position(wp, op.at, op.origin)
+            return f'{wp}.hole({r}{depth_arg})'
+
         if ctx == PipelineContext.FACE_SELECTION:
-            # FaceSelection -> hole: cut at centre of each selected face
-            if op.depth:
-                depth = self._gen_expr(op.depth)
-                return f'{current}.holeOnFaces({r}, {depth})'
-            return f'{current}.holeOnFaces({r})'
-        if op.depth:
-            depth = self._gen_expr(op.depth)
-            return f'{current}.hole({r}, {depth})'
-        return f'{current}.hole({r})'
+            # FaceSelection without at: -> cut at centre of each selected face
+            return f'{current}.holeOnFaces({r}{depth_arg})'
+
+        return f'{current}.hole({r}{depth_arg})'
+
+    def _gen_hole_at_position(self, current: str, at_node: ast.Node, origin_node: ast.Node | None) -> str:
+        """Position the workplane cursor for a hole with at: kwarg."""
+        if isinstance(at_node, ast.TupleLit):
+            vals = [self._gen_expr(v) for v in at_node.values]
+            if len(vals) >= 3:
+                # 3-component: world coordinates (project onto face)
+                return f'{current}.workplane(origin=({vals[0]}, {vals[1]}, {vals[2]})).moveTo(0, 0)'
+            elif len(vals) == 2:
+                if isinstance(origin_node, ast.StringLit) and origin_node.value == "world":
+                    # 2-component + origin:"world": treat as world XY
+                    return f'{current}.workplane(origin=({vals[0]}, {vals[1]}, 0)).moveTo(0, 0)'
+                elif isinstance(origin_node, ast.TupleLit):
+                    ov = [self._gen_expr(v) for v in origin_node.values]
+                    oz = ov[2] if len(ov) > 2 else "0"
+                    return f'{current}.workplane(origin=({ov[0]}, {ov[1]}, {oz})).center({vals[0]}, {vals[1]})'
+                else:
+                    # Default 2-component: WP-relative
+                    return f'{current}.center({vals[0]}, {vals[1]})'
+        # Fallback: single value as x offset
+        val = self._gen_expr(at_node)
+        return f'{current}.center({val}, 0)'
 
     def _gen_cut(self, current: str, op: ast.Cut) -> str:
         if op.depth:
@@ -961,6 +990,15 @@ class OCPCodegen:
         if isinstance(op.offset, ast.TupleLit) and len(op.offset.values) >= 2:
             x = self._gen_expr(op.offset.values[0])
             y = self._gen_expr(op.offset.values[1])
+            origin = op.origin
+            if origin is not None:
+                if isinstance(origin, ast.StringLit) and origin.value == "world":
+                    # World-relative delta: set world origin then move relative
+                    return f'{current}.workplane(origin=(0, 0, 0)).center({x}, {y})'
+                elif isinstance(origin, ast.TupleLit):
+                    ov = [self._gen_expr(v) for v in origin.values]
+                    oz = ov[2] if len(ov) > 2 else "0"
+                    return f'{current}.workplane(origin=({ov[0]}, {ov[1]}, {oz})).center({x}, {y})'
             return f'{current}.center({x}, {y})'
         return current
 
@@ -968,6 +1006,15 @@ class OCPCodegen:
         if isinstance(op.position, ast.TupleLit) and len(op.position.values) >= 2:
             x = self._gen_expr(op.position.values[0])
             y = self._gen_expr(op.position.values[1])
+            origin = op.origin
+            if origin is not None:
+                if isinstance(origin, ast.StringLit) and origin.value == "world":
+                    # World-absolute: project world point onto face workplane
+                    return f'{current}.workplane(origin=({x}, {y}, 0)).moveTo(0, 0)'
+                elif isinstance(origin, ast.TupleLit):
+                    ov = [self._gen_expr(v) for v in origin.values]
+                    oz = ov[2] if len(ov) > 2 else "0"
+                    return f'{current}.workplane(origin=({ov[0]}, {ov[1]}, {oz})).moveTo({x}, {y})'
             return f'{current}.moveTo({x}, {y})'
         return current
 
@@ -977,12 +1024,26 @@ class OCPCodegen:
         if hasattr(prim, 'angle') and prim.angle is not None:
             angle = self._gen_expr(prim.angle)
             current = f'{current}.transformed(rotate=(0, 0, {angle}))'
-        # Insert .center(x, y) before the 2D primitive if at: is specified
+        # Insert .center(x, y) or .workplane(origin=...) before the 2D primitive if at: is specified
         if hasattr(prim, 'at') and prim.at is not None:
             at = prim.at
+            origin = getattr(prim, 'origin', None)
             if isinstance(at, ast.TupleLit):
                 vals = [self._gen_expr(v) for v in at.values]
-                current = f'{current}.center({vals[0]}, {vals[1]})'
+                if len(vals) >= 3:
+                    # 3-component: world coordinates (project onto face)
+                    current = f'{current}.workplane(origin=({vals[0]}, {vals[1]}, {vals[2]})).moveTo(0, 0)'
+                elif len(vals) == 2:
+                    if isinstance(origin, ast.StringLit) and origin.value == "world":
+                        # 2-component + origin:"world": world XY
+                        current = f'{current}.workplane(origin=({vals[0]}, {vals[1]}, 0)).moveTo(0, 0)'
+                    elif isinstance(origin, ast.TupleLit):
+                        ov = [self._gen_expr(v) for v in origin.values]
+                        oz = ov[2] if len(ov) > 2 else "0"
+                        current = f'{current}.workplane(origin=({ov[0]}, {ov[1]}, {oz})).center({vals[0]}, {vals[1]})'
+                    else:
+                        # Default 2-component: WP-relative
+                        current = f'{current}.center({vals[0]}, {vals[1]})'
             else:
                 v = self._gen_expr(at)
                 current = f'{current}.center({v}, 0)'
@@ -1135,12 +1196,18 @@ class OCPCodegen:
 
     # --- At Placement ---
 
-    def _gen_at_kwarg(self, shape_code: str, at_node: ast.Node | None) -> str:
-        """Apply at: kwarg translation if present."""
+    def _gen_at_kwarg(self, shape_code: str, at_node: ast.Node | None, origin_node: ast.Node | None = None) -> str:
+        """Apply at: kwarg translation if present.
+
+        When *origin_node* is provided, it modifies the reference frame:
+        - ``"world"`` (or None): world origin -- same as default 3-component behavior
+        - ``"local"``: WP-relative -- same as default 2-component behavior
+        - ``(ox, oy, oz)``: translate is relative to that world point
+        """
         if at_node is None:
             return shape_code
         if isinstance(at_node, ast.TupleLit):
-            return self._gen_translate_tuple(shape_code, at_node)
+            return self._gen_translate_tuple(shape_code, at_node, origin_node)
         elif isinstance(at_node, ast.ListLit):
             return self._gen_list_placement(shape_code, at_node)
         else:
@@ -1148,8 +1215,23 @@ class OCPCodegen:
             val = self._gen_expr(at_node)
             return f'{shape_code}.translate(({val}, 0, 0))'
 
-    def _gen_translate_tuple(self, shape_code: str, tup: ast.TupleLit) -> str:
+    def _gen_translate_tuple(self, shape_code: str, tup: ast.TupleLit, origin_node: ast.Node | None = None) -> str:
         vals = [self._gen_expr(v) for v in tup.values]
+        if isinstance(origin_node, ast.TupleLit):
+            # origin:(ox,oy,oz) -- at: is relative to that world point
+            ov = [self._gen_expr(v) for v in origin_node.values]
+            ox, oy, oz = ov[0], ov[1], ov[2] if len(ov) > 2 else "0"
+            if len(vals) == 2:
+                return f'{shape_code}.translate(({ox} + {vals[0]}, {oy} + {vals[1]}, {oz}))'
+            elif len(vals) == 3:
+                return f'{shape_code}.translate(({ox} + {vals[0]}, {oy} + {vals[1]}, {oz} + {vals[2]}))'
+        elif isinstance(origin_node, ast.StringLit) and origin_node.value == "world":
+            # origin:"world" -- force world coordinates even for 2-component
+            if len(vals) == 2:
+                return f'{shape_code}.translate(({vals[0]}, {vals[1]}, 0))'
+            elif len(vals) == 3:
+                return f'{shape_code}.translate(({vals[0]}, {vals[1]}, {vals[2]}))'
+        # Default or origin:"local": 2-component=WP-relative, 3-component=world
         if len(vals) == 2:
             return f'{shape_code}.translate(({vals[0]}, {vals[1]}, 0))'
         elif len(vals) == 3:

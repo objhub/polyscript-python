@@ -137,6 +137,7 @@ class Box(Node):
     depth: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -145,6 +146,7 @@ class Cylinder(Node):
     radius: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -152,6 +154,7 @@ class Sphere(Node):
     radius: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -164,6 +167,7 @@ class Cone(Node):
     angle: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -172,6 +176,7 @@ class Torus(Node):
     r2: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -182,6 +187,7 @@ class Wedge(Node):
     ltx: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 # --- 2D Primitives ---
@@ -192,6 +198,7 @@ class Rect(Node):
     height: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -199,6 +206,7 @@ class Circle(Node):
     radius: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -207,6 +215,7 @@ class Ellipse(Node):
     ry: Node | None = None
     center: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -220,6 +229,7 @@ class Polygon(Node):
     r: Node | None = None
     angle: Node | None = None
     at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -368,6 +378,8 @@ class Inter(Node):
 class Hole(Node):
     radius: Node | None = None
     depth: Node | None = None
+    at: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
@@ -431,11 +443,13 @@ class ColorOp(Node):
 @dataclass
 class Move(Node):
     offset: Node | None = None
+    origin: Node | None = None
 
 
 @dataclass
 class MoveTo(Node):
     position: Node | None = None
+    origin: Node | None = None
 
 
 # --- Function Call ---
