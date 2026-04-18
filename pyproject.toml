@@ -1,6 +1,6 @@
 [project]
 name = "polyscript"
-version = "0.0.3"
+version = "0.0.7"
 description = "Parametric CAD DSL"
 requires-python = ">=3.10"
 dependencies = [
