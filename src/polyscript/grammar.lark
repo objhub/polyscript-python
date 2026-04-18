@@ -213,7 +213,6 @@ arg: NAME ":" expr    -> kwarg
           | "line" greedy_args         -> line_path
           | "arc" greedy_args          -> arc_path
           | "carc" greedy_args         -> carc_path
-          | "tarc" greedy_args         -> tarc_path
           | "bezier" greedy_args       -> bezier_path
           | "helix" greedy_args        -> helix_path
           | "spline" greedy_args       -> spline_path
@@ -223,13 +222,12 @@ arg: NAME ":" expr    -> kwarg
           | "union" bracket_expr     -> union_source
           | "diff" bracket_expr      -> diff_source
           | "inter" bracket_expr     -> inter_source
+          | "workplane" greedy_args  -> workplane_source
 
 sketch_start: tuple
-sketch_segment: "arc" tuple tuple                  -> sketch_arc
-              | "carc" tuple tuple                  -> sketch_carc_center
-              | "carc" tuple NAME ":" greedy_val    -> sketch_carc_radius
-              | "tarc" tuple tuple                  -> sketch_tarc_explicit
-              | "tarc" tuple                        -> sketch_tarc_inherit
+sketch_segment: "arc" tuple tuple tuple             -> sketch_arc
+              | "carc" tuple tuple tuple             -> sketch_carc_center
+              | "carc" tuple tuple NAME ":" greedy_val -> sketch_carc_radius
               | "bezier" greedy_args                -> sketch_bezier
               | tuple                               -> sketch_line
 
@@ -247,7 +245,7 @@ SELECTOR: /[><=+][XYZ]/
 DOLLAR_NAME: /\$[a-zA-Z_]\w*/
 
 // NAME excludes all keywords to prevent greedy-arg consumption of structural tokens
-NAME: /(?!(?:box|cylinder|sphere|cone|torus|wedge|rect|circle|ellipse|polyline|polygon|text|line|arc|carc|tarc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|loft|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
+NAME: /(?!(?:box|cylinder|sphere|cone|torus|wedge|rect|circle|ellipse|polyline|polygon|text|line|arc|carc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|loft|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
 _MOVE: /move(?!to\b)/
 
 %import common.NUMBER

@@ -44,7 +44,7 @@ class TestArcPath:
     """Lines 262-264: arc path generation."""
 
     def test_arc(self):
-        code = compile_source("arc (5, 10) (10, 0)")
+        code = compile_source("arc (0, 0) (5, 10) (10, 0)")
         assert 'threePointArc' in code
 
 

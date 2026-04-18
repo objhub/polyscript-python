@@ -8,6 +8,7 @@ from . import ast_nodes as ast
 
 
 _SELECTOR_NAME_ALIASES = {"top", "bottom", "right", "left", "front", "back"}
+_VALID_PLANE_NAMES = {"XY", "XZ", "YZ", "ZX", "ZY", "YX"}
 
 
 class PolyTransformer(LarkTransformer):
@@ -207,23 +208,17 @@ class PolyTransformer(LarkTransformer):
         return items[0]  # TupleLit
 
     def sketch_arc(self, items):
-        return ast.ArcPath(through=items[0], end=items[1])
+        return ast.ArcPath(start=items[0], through=items[1], end=items[2])
 
     def sketch_carc_center(self, items):
-        return ast.CenterArcPath(end=items[0], center=items[1])
+        return ast.CenterArcPath(start=items[0], end=items[1], center=items[2])
 
     def sketch_carc_radius(self, items):
-        # items: [end_tuple, NAME_token("r"), radius_value]
-        name = str(items[1])
+        # items: [start_tuple, end_tuple, NAME_token("r"), radius_value]
+        name = str(items[2])
         if name != "r":
             raise ValueError(f"carc named arg must be 'r:', got '{name}:'")
-        return ast.CenterArcPath(end=items[0], radius=items[2])
-
-    def sketch_tarc_inherit(self, items):
-        return ast.TangentArcPath(end=items[0])
-
-    def sketch_tarc_explicit(self, items):
-        return ast.TangentArcPath(end=items[0], tangent=items[1])
+        return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
     def sketch_bezier(self, items):
         args, kwargs = self._split_args(items[0])
@@ -241,8 +236,9 @@ class PolyTransformer(LarkTransformer):
     def arc_path(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.ArcPath(
-            through=args[0] if len(args) > 0 else None,
-            end=args[1] if len(args) > 1 else None,
+            start=args[0] if len(args) > 0 else None,
+            through=args[1] if len(args) > 1 else None,
+            end=args[2] if len(args) > 2 else None,
         )
 
     def carc_path(self, items):
@@ -250,19 +246,15 @@ class PolyTransformer(LarkTransformer):
         r = kwargs.get("r")
         if r is not None:
             return ast.CenterArcPath(
-                end=args[0] if args else None,
+                start=args[0] if len(args) > 0 else None,
+                end=args[1] if len(args) > 1 else None,
                 radius=r,
             )
         return ast.CenterArcPath(
-            end=args[0] if len(args) > 0 else None,
-            center=args[1] if len(args) > 1 else None,
+            start=args[0] if len(args) > 0 else None,
+            end=args[1] if len(args) > 1 else None,
+            center=args[2] if len(args) > 2 else None,
         )
-
-    def tarc_path(self, items):
-        args, kwargs = self._split_args(items[0])
-        if len(args) > 1:
-            return ast.TangentArcPath(end=args[0], tangent=args[1])
-        return ast.TangentArcPath(end=args[0] if args else None)
 
     def bezier_path(self, items):
         args, kwargs = self._split_args(items[0])
@@ -368,7 +360,7 @@ class PolyTransformer(LarkTransformer):
         if not items:
             return ast.Workplane(plane=None)
         args, kwargs = self._split_args(items[0])
-        plane = args[0].value if args and isinstance(args[0], ast.StringLit) else None
+        plane = self._resolve_plane_arg(args[0] if args else None)
         origin = kwargs.get("origin")
         return ast.Workplane(plane=plane, origin=origin)
 
@@ -416,6 +408,14 @@ class PolyTransformer(LarkTransformer):
 
     def inter_source(self, items):
         return ast.Inter(shape=items[0])
+
+    def workplane_source(self, items):
+        if not items:
+            return ast.Workplane(plane=None)
+        args, kwargs = self._split_args(items[0])
+        plane = self._resolve_plane_arg(args[0] if args else None)
+        origin = kwargs.get("origin")
+        return ast.Workplane(plane=plane, origin=origin)
 
     def hole(self, items):
         args, kwargs = self._split_args(items[0])
@@ -799,6 +799,31 @@ class PolyTransformer(LarkTransformer):
         return ast.FuncCall(name=name, args=pos, kwargs=kw)
 
     # --- Helpers ---
+
+    @staticmethod
+    def _resolve_plane_arg(arg):
+        """Resolve a workplane plane argument.
+
+        Accepts:
+        - StringLit: ``workplane "XZ"`` -> extracts .value
+        - VarRef with valid plane name: ``workplane XZ`` -> extracts .name
+        - None: no plane specified
+        Raises CodegenError for invalid bare-word plane names.
+        """
+        if arg is None:
+            return None
+        if isinstance(arg, ast.StringLit):
+            return arg.value
+        if isinstance(arg, ast.VarRef) and not arg.dollar:
+            name = arg.name
+            if name in _VALID_PLANE_NAMES:
+                return name
+            from .errors import CodegenError
+            raise CodegenError(
+                f"Invalid workplane name '{name}'. "
+                f"Valid planes: {', '.join(sorted(_VALID_PLANE_NAMES))}"
+            )
+        return None
 
     @staticmethod
     def _split_args(args_list):

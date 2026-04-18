@@ -320,7 +320,7 @@ class TestPipeSketch:
 
     def test_sketch_with_arc_in_pipe(self):
         code = compile_source(
-            'box 10 10 10 | faces >Z | workplane | sketch [(5,0), arc (0,-5) (-5,0), (0,7), (5,0)] | cut'
+            'box 10 10 10 | faces >Z | workplane | sketch [(5,0), arc (5,0) (0,-5) (-5,0), (0,7), (5,0)] | cut'
         )
         assert '.sketch(' in code
         assert '("arc"' in code
@@ -790,3 +790,127 @@ class TestImplicit2DAt:
         code = compile_source("box 50 50 10 | faces top | circle 5 at: 10 10")
         assert ".center(10, 10)" in code
         assert code.index(".center(10, 10)") < code.index(".circle(5")
+
+
+class TestWorkplaneSource:
+    """Test workplane as a source command (pipeline head)."""
+
+    def test_workplane_xz_circle_extrude(self):
+        """workplane 'XZ' | circle 10 | extrude 10 should parse and compile."""
+        code = compile_source('workplane "XZ" | circle 10 | extrude 10')
+        assert 'cq.Workplane("XZ")' in code
+        assert '.circle(10)' in code
+        assert '.extrude(10)' in code
+
+    def test_workplane_yz_rect_extrude(self):
+        """workplane 'YZ' | rect 20 10 | extrude 5 should parse and compile."""
+        code = compile_source('workplane "YZ" | rect 20 10 | extrude 5')
+        assert 'cq.Workplane("YZ")' in code
+        assert '.rect(20, 10)' in code
+        assert '.extrude(5)' in code
+
+    def test_workplane_default_xy(self):
+        """workplane (no args) | circle 5 | extrude 3 should default to XY."""
+        code = compile_source('workplane | circle 5 | extrude 3')
+        assert 'cq.Workplane("XY")' in code
+        assert '.circle(5)' in code
+        assert '.extrude(3)' in code
+
+    def test_workplane_explicit_xy(self):
+        """workplane 'XY' | circle 5 | extrude 3 should use XY plane."""
+        code = compile_source('workplane "XY" | circle 5 | extrude 3')
+        assert 'cq.Workplane("XY")' in code
+        assert '.circle(5)' in code
+
+    def test_existing_pipe_workplane_still_works(self):
+        """Existing pipe workplane (after faces) should still work."""
+        code = compile_source(
+            'box 50 50 10 | faces >Z | workplane "XZ" | circle 5 | extrude 3'
+        )
+        assert ".faces('>Z')" in code
+        assert '.workplane()' in code
+        assert '.transformed(rotate=(-90, 0, 0))' in code
+        assert '.circle(5)' in code
+        assert '.extrude(3)' in code
+
+    def test_workplane_source_ast(self):
+        """workplane source produces ast.Workplane node."""
+        tree = parse('workplane "XZ" | circle 10 | extrude 10')
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        assert isinstance(pipeline, ast.Pipeline)
+        assert isinstance(pipeline.source, ast.Workplane)
+        assert pipeline.source.plane == "XZ"
+
+    def test_workplane_source_context_is_workplane(self):
+        """workplane source should have WORKPLANE context so 2D prims work."""
+        # This should not raise - circle is valid after workplane
+        code = compile_source('workplane "XZ" | rect 20 10 | extrude 5')
+        assert '.rect(20, 10)' in code
+        assert '.extrude(5)' in code
+
+    def test_workplane_source_execution(self):
+        """workplane 'XZ' | circle 10 | extrude 10 should execute and produce a solid."""
+        result = execute('workplane "XZ" | circle 10 | extrude 10')
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        # Circle on XZ plane extruded along Y axis
+        assert bb.xlen > 0
+        assert bb.zlen > 0
+
+    # --- Bare-word plane name tests ---
+
+    def test_workplane_bareword_xz_source(self):
+        """workplane XZ (bare word) | circle 10 | extrude 10 should work like quoted version."""
+        code = compile_source('workplane XZ | circle 10 | extrude 10')
+        assert 'cq.Workplane("XZ")' in code
+        assert '.circle(10)' in code
+        assert '.extrude(10)' in code
+
+    def test_workplane_bareword_yz_source(self):
+        """workplane YZ (bare word) | rect 20 10 | extrude 5."""
+        code = compile_source('workplane YZ | rect 20 10 | extrude 5')
+        assert 'cq.Workplane("YZ")' in code
+        assert '.rect(20, 10)' in code
+        assert '.extrude(5)' in code
+
+    def test_workplane_bareword_pipe_op(self):
+        """box | faces >Z | workplane XZ (bare word in pipe context)."""
+        code = compile_source('box 10 10 10 | faces >Z | workplane XZ')
+        assert ".faces('>Z')" in code
+        assert '.workplane()' in code
+        assert '.transformed(rotate=(-90, 0, 0))' in code
+
+    def test_workplane_bareword_ast(self):
+        """Bare-word plane name produces correct AST node."""
+        tree = parse('workplane XZ | circle 10 | extrude 10')
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        assert isinstance(pipeline, ast.Pipeline)
+        assert isinstance(pipeline.source, ast.Workplane)
+        assert pipeline.source.plane == "XZ"
+
+    def test_workplane_bareword_all_planes(self):
+        """All valid bare-word plane names should be accepted."""
+        for plane in ("XY", "XZ", "YZ", "ZX", "ZY", "YX"):
+            code = compile_source(f'workplane {plane} | circle 5 | extrude 3')
+            assert f'cq.Workplane("{plane}")' in code
+
+    def test_workplane_quoted_still_works(self):
+        """Quoted plane names still work (backward compatibility)."""
+        code_quoted = compile_source('workplane "XZ" | circle 10 | extrude 10')
+        code_bare = compile_source('workplane XZ | circle 10 | extrude 10')
+        assert code_quoted == code_bare
+
+    def test_workplane_bareword_invalid_plane_error(self):
+        """Invalid bare-word plane name should raise an error."""
+        with pytest.raises(Exception, match="Invalid workplane name"):
+            compile_source('workplane ABC | circle 5 | extrude 3')
+
+    def test_workplane_bareword_execution(self):
+        """workplane XZ | circle 10 | extrude 10 should execute correctly."""
+        result = execute('workplane XZ | circle 10 | extrude 10')
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert bb.xlen > 0
+        assert bb.zlen > 0

@@ -21,7 +21,7 @@ class TestSketchParsing:
 
     def test_sketch_with_arc(self):
         tree = parse(
-            "sketch [(5, 0), arc (0, -5) (-5, 0), (0, 7), (5, 0)]"
+            "sketch [(5, 0), arc (5, 0) (0, -5) (-5, 0), (0, 7), (5, 0)]"
         )
         prog = transform(tree)
         stmt = prog.statements[0]
@@ -30,6 +30,7 @@ class TestSketchParsing:
         # First segment is arc
         arc = stmt.segments[0]
         assert isinstance(arc, ast.ArcPath)
+        assert isinstance(arc.start, ast.TupleLit)
         assert isinstance(arc.through, ast.TupleLit)
         assert isinstance(arc.end, ast.TupleLit)
         # Second and third are lines (TupleLit)
@@ -57,7 +58,7 @@ class TestSketchCodegen:
 
     def test_sketch_arc_codegen(self):
         code = compile_source(
-            "sketch [(5, 0), arc (0, -5) (-5, 0), (0, 7)]"
+            "sketch [(5, 0), arc (5, 0) (0, -5) (-5, 0), (0, 7)]"
         )
         assert ".sketch(" in code
         assert '("arc"' in code
@@ -93,7 +94,7 @@ class TestSketchExecution:
     def test_sketch_with_arc_execute(self):
         from polyscript.executor import execute
         result = execute(
-            "sketch [(5, 0), arc (0, -5) (-5, 0), (0, 7), (5, 0)]"
+            "sketch [(5, 0), arc (5, 0) (0, -5) (-5, 0), (0, 7), (5, 0)]"
         )
         assert result is not None
 
@@ -108,7 +109,7 @@ class TestSketchExecution:
     def test_sketch_with_arc_extrude_execute(self):
         from polyscript.executor import execute
         result = execute(
-            "sketch [(5, 0), arc (0, -5) (-5, 0), (0, 7), (5, 0)] | extrude 5"
+            "sketch [(5, 0), arc (5, 0) (0, -5) (-5, 0), (0, 7), (5, 0)] | extrude 5"
         )
         assert result is not None
         assert result._shape is not None

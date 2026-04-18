@@ -25,7 +25,7 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePi
 from OCP.BRepTools import BRepTools, BRepTools_WireExplorer
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
-    BRepBuilderAPI_Transform,
+    BRepBuilderAPI_Transform, BRepBuilderAPI_RoundCorner,
 )
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Edge, TopoDS_Wire, TopoDS, TopoDS_Builder, TopoDS_Compound
 from OCP.TopExp import TopExp_Explorer
@@ -433,7 +433,10 @@ def _make_center_arc_edge(
 ) -> TopoDS_Edge:
     """Build an arc edge from start, end, center (short-arc, CCW default).
 
-    Uses ``GC_MakeArcOfCircle(gp_Circ, alpha1, alpha2, sense)``.
+    Computes the midpoint on the minor arc and delegates to the 3-point
+    ``GC_MakeArcOfCircle(p1, p2, p3)`` — this avoids the ambiguity of
+    gp_Ax2's implicit reference direction that otherwise makes the
+    (circle, alpha1, alpha2, sense) form pick the wrong side of the chord.
     """
     r_s = p_start.Distance(p_center)
     r_e = p_end.Distance(p_center)
@@ -446,36 +449,32 @@ def _make_center_arc_edge(
         )
     r = (r_s + r_e) / 2.0
 
-    normal = _plane_normal(plane)
-    # Reference direction: from center to start
-    ref_dir = gp_Dir(gp_Vec(p_center, p_start))
-    ax2 = gp_Ax2(p_center, normal, ref_dir)
-    circle = gp_Circ(ax2, r)
-
-    # Compute angles of start and end on the circle
-    # alpha1 is 0 by construction (ref_dir = CS)
-    alpha1 = 0.0
-    # For alpha2, compute the signed angle from CS to CE
-    v_cs = gp_Vec(p_center, p_start)
-    v_ce = gp_Vec(p_center, p_end)
-    # angle via atan2 of cross/dot projected onto normal
-    dot = v_cs.Dot(v_ce)
-    cross_vec = v_cs.Crossed(v_ce)
-    cross_sign = cross_vec.X() * normal.X() + cross_vec.Y() * normal.Y() + cross_vec.Z() * normal.Z()
-    alpha2 = math.atan2(cross_sign, dot)
-
-    # Default is short arc: if alpha2 is negative, go CW (sense=False);
-    # if positive, go CCW (sense=True).
-    # For 180 degrees exactly, default to CCW.
-    if abs(alpha2) < 1e-10:
-        raise ValueError("carc: start and end are the same point relative to center")
-    if alpha2 > 0:
-        sense = True  # CCW
+    mcx = (p_start.X() + p_end.X()) / 2.0
+    mcy = (p_start.Y() + p_end.Y()) / 2.0
+    mcz = (p_start.Z() + p_end.Z()) / 2.0
+    vx = mcx - p_center.X()
+    vy = mcy - p_center.Y()
+    vz = mcz - p_center.Z()
+    vlen = math.sqrt(vx * vx + vy * vy + vz * vz)
+    if vlen > 1e-10:
+        k = r / vlen
+        p_mid = gp_Pnt(p_center.X() + vx * k, p_center.Y() + vy * k, p_center.Z() + vz * k)
     else:
-        sense = False  # CW
-        alpha2 = -alpha2  # make alpha2 positive for the API
+        # Semicircle: chord passes through center, so use normal x (end - start)
+        normal = _plane_normal(plane)
+        ex = p_end.X() - p_start.X()
+        ey = p_end.Y() - p_start.Y()
+        ez = p_end.Z() - p_start.Z()
+        px = normal.Y() * ez - normal.Z() * ey
+        py = normal.Z() * ex - normal.X() * ez
+        pz = normal.X() * ey - normal.Y() * ex
+        plen = math.sqrt(px * px + py * py + pz * pz)
+        if plen < 1e-12:
+            raise ValueError("carc: degenerate start/end/center geometry")
+        k = r / plen
+        p_mid = gp_Pnt(p_center.X() + px * k, p_center.Y() + py * k, p_center.Z() + pz * k)
 
-    arc_curve = GC_MakeArcOfCircle(circle, alpha1, alpha2, sense).Value()
+    arc_curve = GC_MakeArcOfCircle(p_start, p_mid, p_end).Value()
     return BRepBuilderAPI_MakeEdge(arc_curve).Edge()
 
 
@@ -957,18 +956,18 @@ class Workplane:
         *start* is a 2D tuple ``(x, y)`` — the starting point.
         Each subsequent argument is a segment descriptor:
           - ``("line", (x, y))`` — straight line to (x, y)
-          - ``("arc", (tx, ty), (ex, ey))`` — arc through (tx,ty) to (ex,ey)
-          - ``("carc_center", (ex, ey), (cx, cy))`` — center arc
-          - ``("carc_radius", (ex, ey), r)`` — radius arc
-          - ``("tarc", (ex, ey))`` — tangent arc (inherit from previous)
-          - ``("tarc_explicit", (ex, ey), (tx, ty))`` — tangent arc (explicit)
+          - ``("arc", (sx, sy), (tx, ty), (ex, ey))`` — arc: start, through, end
+          - ``("carc_center", (sx, sy), (ex, ey), (cx, cy))`` — center arc
+          - ``("carc_radius", (sx, sy), (ex, ey), r)`` — radius arc
           - ``("bezier", [(x1,y1), ...])`` — bezier/spline through control points
         The wire is automatically closed and converted to a face.
+
+        For arc/carc segments, ``start`` must match the current pen position
+        (tolerance 1e-6); a mismatch raises ValueError.
         """
         cx, cy = self._center_x, self._center_y
         current = _to_3d(self._plane, start[0] + cx, start[1] + cy)
         builder = BRepBuilderAPI_MakeWire()
-        # Track previous tangent vector for tarc inheritance
         prev_tangent = None  # gp_Vec or None
 
         for seg in segments:
@@ -984,7 +983,12 @@ class Workplane:
                 prev_tangent.Normalize()
                 current = end_3d
             elif kind == "arc":
-                through_2d, end_2d = seg[1], seg[2]
+                start_2d, through_2d, end_2d = seg[1], seg[2], seg[3]
+                p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
+                if current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"arc start {start_2d} does not match current position"
+                    )
                 p_through = _to_3d(self._plane, through_2d[0] + cx, through_2d[1] + cy)
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
@@ -1004,7 +1008,12 @@ class Workplane:
                 builder.Add(edge)
                 current = p_end
             elif kind == "carc_center":
-                end_2d, center_2d = seg[1], seg[2]
+                start_2d, end_2d, center_2d = seg[1], seg[2], seg[3]
+                p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
+                if current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"carc start {start_2d} does not match current position"
+                    )
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 p_center = _to_3d(self._plane, center_2d[0] + cx, center_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
@@ -1014,35 +1023,16 @@ class Workplane:
                 prev_tangent = _edge_end_tangent(edge)
                 current = p_end
             elif kind == "carc_radius":
-                end_2d, radius = seg[1], seg[2]
+                start_2d, end_2d, radius = seg[1], seg[2], seg[3]
+                p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
+                if current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"carc start {start_2d} does not match current position"
+                    )
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 if current.Distance(p_end) < 1e-6:
                     continue
                 edge = _make_radius_arc_edge(current, p_end, float(radius), self._plane)
-                builder.Add(edge)
-                prev_tangent = _edge_end_tangent(edge)
-                current = p_end
-            elif kind == "tarc":
-                end_2d = seg[1]
-                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
-                if current.Distance(p_end) < 1e-6:
-                    continue
-                if prev_tangent is None:
-                    raise ValueError("tarc cannot be the first segment")
-                arc_curve = GC_MakeArcOfCircle(current, prev_tangent, p_end).Value()
-                edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
-                builder.Add(edge)
-                prev_tangent = _edge_end_tangent(edge)
-                current = p_end
-            elif kind == "tarc_explicit":
-                end_2d, tangent_2d = seg[1], seg[2]
-                p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
-                if current.Distance(p_end) < 1e-6:
-                    continue
-                # Build tangent vector in 3D from the 2D tangent direction
-                t_vec = _tangent_2d_to_3d(self._plane, tangent_2d[0], tangent_2d[1])
-                arc_curve = GC_MakeArcOfCircle(current, t_vec, p_end).Value()
-                edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
                 builder.Add(edge)
                 prev_tangent = _edge_end_tangent(edge)
                 current = p_end
@@ -1684,9 +1674,8 @@ class Workplane:
         tangent_vec = adaptor.DN(t0, 1)
         tangent_dir = gp_Dir(tangent_vec)
 
-        # Use MakePipeShell with fixed binormal (Z) for paths that are
-        # not along Z (e.g. helices).  This prevents the profile from
-        # tilting by the helix angle.
+        # Use fixed +Z binormal so the profile doesn't tilt out of the XY
+        # plane on helices. Fall back to +X if tangent is nearly along Z.
         binormal = gp_Dir(0, 0, 1)
         use_binormal = abs(tangent_dir.Dot(binormal)) < 0.9
 
@@ -1711,22 +1700,22 @@ class Workplane:
 
         moved_wire = TopoDS.Wire_s(BRepBuilderAPI_Transform(wire, trsf, True).Shape())
 
-        if use_binormal:
-            try:
-                pipe_shell = BRepOffsetAPI_MakePipeShell(path_wire)
-                pipe_shell.SetMode(binormal)
-                pipe_shell.Add(moved_wire)
-                pipe_shell.Build()
-                if pipe_shell.IsDone():
-                    pipe_shell.MakeSolid()
-                    solid = pipe_shell.Shape()
-                else:
-                    face = _make_face_from_wire(moved_wire)
-                    solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
-            except Exception:
+        # Prefer MakePipeShell with RoundCorner transition (default Corrected
+        # Frenet mode). This matches the TS implementation and gives correct
+        # shapes for both straight and curved spines including closed paths
+        # (torus etc.). Binormal mode is only needed when PipeShell fails.
+        try:
+            pipe_shell = BRepOffsetAPI_MakePipeShell(path_wire)
+            pipe_shell.SetTransitionMode(BRepBuilderAPI_RoundCorner)
+            pipe_shell.Add(moved_wire)
+            pipe_shell.Build()
+            if pipe_shell.IsDone():
+                pipe_shell.MakeSolid()
+                solid = pipe_shell.Shape()
+            else:
                 face = _make_face_from_wire(moved_wire)
                 solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
-        else:
+        except Exception:
             face = _make_face_from_wire(moved_wire)
             solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
         new_shape = solid

@@ -255,24 +255,19 @@ class LinePath(Node):
 
 @dataclass
 class ArcPath(Node):
+    start: Node | None = None
     through: Node | None = None
     end: Node | None = None
 
 
 @dataclass
 class CenterArcPath(Node):
-    """Center arc: end + center, or end + radius."""
+    """Center arc: start + end + center, or start + end + radius."""
+    start: Node | None = None
     end: Node | None = None
     center: Node | None = None
     radius: Node | None = None  # center or radius is non-None
     cw: bool = False  # future: clockwise / long-arc flag
-
-
-@dataclass
-class TangentArcPath(Node):
-    """Tangent arc: end, optionally with explicit tangent vector."""
-    end: Node | None = None
-    tangent: Node | None = None  # None = inherit from previous segment
 
 
 @dataclass

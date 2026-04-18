@@ -222,11 +222,11 @@ class OCPCodegen:
         ast.LinePath:      "_gen_line_path",
         ast.ArcPath:       "_gen_arc_path",
         ast.CenterArcPath: "_gen_center_arc_path",
-        ast.TangentArcPath: "_gen_tangent_arc_path",
         ast.HelixPath:     "_gen_helix_path",
         ast.BezierPath:    "_gen_bezier_path",
         ast.SplinePath:    "_gen_spline_path",
         ast.SketchExpr:    "_gen_sketch",
+        ast.Workplane:     "_gen_workplane_source",
     }
 
     def _gen_expr(self, node: ast.Node) -> str:
@@ -249,11 +249,13 @@ class OCPCodegen:
                                ast.SketchExpr)):
             return PipelineContext.TWO_D
         if isinstance(source, (ast.LinePath, ast.ArcPath, ast.CenterArcPath,
-                               ast.TangentArcPath, ast.BezierPath,
+                               ast.BezierPath,
                                ast.HelixPath, ast.SplinePath)):
             return PipelineContext.TWO_D
         if isinstance(source, (ast.Union, ast.Diff, ast.Inter)):
             return PipelineContext.THREE_D
+        if isinstance(source, ast.Workplane):
+            return PipelineContext.WORKPLANE
         # VarRef, FuncCall, etc. -- cannot statically determine
         return PipelineContext.UNKNOWN
 
@@ -573,24 +575,19 @@ class OCPCodegen:
                 pt = self._gen_expr(seg)
                 parts.append(f', ("line", {pt})')
             elif isinstance(seg, ast.ArcPath):
+                start = self._gen_expr(seg.start)
                 through = self._gen_expr(seg.through)
                 end = self._gen_expr(seg.end)
-                parts.append(f', ("arc", {through}, {end})')
+                parts.append(f', ("arc", {start}, {through}, {end})')
             elif isinstance(seg, ast.CenterArcPath):
+                start = self._gen_expr(seg.start)
                 end = self._gen_expr(seg.end)
                 if seg.center is not None:
                     center = self._gen_expr(seg.center)
-                    parts.append(f', ("carc_center", {end}, {center})')
+                    parts.append(f', ("carc_center", {start}, {end}, {center})')
                 else:
                     r = self._gen_expr(seg.radius)
-                    parts.append(f', ("carc_radius", {end}, {r})')
-            elif isinstance(seg, ast.TangentArcPath):
-                end = self._gen_expr(seg.end)
-                if seg.tangent is not None:
-                    tangent = self._gen_expr(seg.tangent)
-                    parts.append(f', ("tarc_explicit", {end}, {tangent})')
-                else:
-                    parts.append(f', ("tarc", {end})')
+                    parts.append(f', ("carc_radius", {start}, {end}, {r})')
             elif isinstance(seg, ast.BezierPath):
                 pts = self._gen_expr(seg.points)
                 parts.append(f', ("bezier", {pts})')
@@ -605,24 +602,19 @@ class OCPCodegen:
         return f'cq.Workplane("XY").moveTo({s}[0], {s}[1]).lineTo({e}[0], {e}[1])'
 
     def _gen_arc_path(self, node: ast.ArcPath) -> str:
+        s = self._gen_expr(node.start)
         t = self._gen_expr(node.through)
         e = self._gen_expr(node.end)
-        return f'cq.Workplane("XY").moveTo(0, 0).threePointArc(({t})[:2], ({e})[:2])'
+        return f'cq.Workplane("XY").moveTo(({s})[0], ({s})[1]).threePointArc(({t})[:2], ({e})[:2])'
 
     def _gen_center_arc_path(self, node: ast.CenterArcPath) -> str:
+        s = self._gen_expr(node.start)
         e = self._gen_expr(node.end)
         if node.center is not None:
             c = self._gen_expr(node.center)
-            return f'cq.Workplane("XY").moveTo(0, 0).centerArc(({e})[:2], ({c})[:2])'
+            return f'cq.Workplane("XY").moveTo(({s})[0], ({s})[1]).centerArc(({e})[:2], ({c})[:2])'
         r = self._gen_expr(node.radius)
-        return f'cq.Workplane("XY").moveTo(0, 0).radiusArc(({e})[:2], {r})'
-
-    def _gen_tangent_arc_path(self, node: ast.TangentArcPath) -> str:
-        e = self._gen_expr(node.end)
-        if node.tangent is not None:
-            t = self._gen_expr(node.tangent)
-            return f'cq.Workplane("XY").moveTo(0, 0).tangentArc(({e})[:2], ({t})[:2])'
-        return f'cq.Workplane("XY").moveTo(0, 0).tangentArc(({e})[:2])'
+        return f'cq.Workplane("XY").moveTo(({s})[0], ({s})[1]).radiusArc(({e})[:2], {r})'
 
     def _gen_helix_path(self, node: ast.HelixPath) -> str:
         pitch = self._gen_expr(node.pitch)
@@ -711,6 +703,23 @@ class OCPCodegen:
         else:
             pts = self._gen_expr(spec)
             return f'{current}.workplane().pushPoints({pts})'
+
+    # --- Workplane Source ---
+
+    def _gen_workplane_source(self, node: ast.Workplane) -> str:
+        """Generate code for workplane as a source (pipeline head).
+
+        Unlike the pipe operation ``_gen_workplane`` which uses
+        ``.workplane().transformed(rotate=...)``, the source form creates a
+        fresh ``Workplane`` directly with the desired plane name because the
+        ocp_kernel constructor accepts ``"XZ"``, ``"YZ"`` etc. via
+        ``_make_plane``.
+        """
+        plane = node.plane or "XY"
+        if node.origin:
+            origin_arg = f'origin={self._gen_expr(node.origin)}'
+            return f'cq.Workplane("{plane}").workplane({origin_arg})'
+        return f'cq.Workplane("{plane}")'
 
     # Rotation angles (degrees) to transform from default XY workplane to target plane
     _PLANE_ROTATIONS = {
