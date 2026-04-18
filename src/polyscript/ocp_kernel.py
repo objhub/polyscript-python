@@ -1066,6 +1066,162 @@ class Workplane:
         new_wires.append(wire)
         return self._copy(_wires=new_wires)
 
+    # --- Path Literal (open wire) ---
+
+    def path(self, start, *segments):
+        """Build an open wire from line/arc/carc/bezier/spline segments.
+
+        Like :meth:`sketch` but does **not** auto-close. Supports both
+        2D ``(x, y)`` and 3D ``(x, y, z)`` coordinates.
+
+        *start* is a 2D or 3D tuple — the starting point. ``None`` is
+        allowed when the first segment carries its own start (e.g. arc,
+        carc, line with explicit start/end).
+
+        Segment descriptors:
+          - ``("line", (x, y))``             — line to point (2D/3D)
+          - ``("line_se", (sx, sy), (ex, ey))`` — line from start to end
+          - ``("arc", (s), (t), (e))``       — 3-point arc
+          - ``("carc_center", (s), (e), (c))`` — center arc
+          - ``("carc_radius", (s), (e), r)`` — radius arc
+          - ``("bezier", [(p1), (p2), ...])`` — bezier through points
+          - ``("spline", [(p1), (p2), ...])`` — B-spline through points
+        """
+        cx, cy = self._center_x, self._center_y
+
+        def _resolve_pt(pt):
+            """Convert a 2D or 3D tuple to gp_Pnt."""
+            if len(pt) >= 3:
+                return gp_Pnt(float(pt[0]), float(pt[1]), float(pt[2]))
+            return _to_3d(self._plane, float(pt[0]) + cx, float(pt[1]) + cy)
+
+        if start is not None:
+            current = _resolve_pt(start)
+        else:
+            current = None
+
+        builder = BRepBuilderAPI_MakeWire()
+
+        for seg in segments:
+            kind = seg[0]
+            if kind == "line":
+                pt = seg[1]
+                end_3d = _resolve_pt(pt)
+                if current is not None and current.Distance(end_3d) < 1e-6:
+                    continue  # skip zero-length edge
+                if current is None:
+                    current = end_3d
+                    continue
+                edge = BRepBuilderAPI_MakeEdge(current, end_3d).Edge()
+                builder.Add(edge)
+                current = end_3d
+            elif kind == "line_se":
+                p_start = _resolve_pt(seg[1])
+                p_end = _resolve_pt(seg[2])
+                if current is not None and current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"line start {seg[1]} does not match current position"
+                    )
+                if current is None:
+                    current = p_start
+                if p_start.Distance(p_end) < 1e-6:
+                    continue
+                edge = BRepBuilderAPI_MakeEdge(p_start, p_end).Edge()
+                builder.Add(edge)
+                current = p_end
+            elif kind == "arc":
+                start_pt, through_pt, end_pt = seg[1], seg[2], seg[3]
+                p_start = _resolve_pt(start_pt)
+                if current is not None and current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"arc start {start_pt} does not match current position"
+                    )
+                if current is None:
+                    current = p_start
+                p_through = _resolve_pt(through_pt)
+                p_end = _resolve_pt(end_pt)
+                if p_start.Distance(p_end) < 1e-6:
+                    continue
+                v1 = gp_Vec(p_start, p_through)
+                v2 = gp_Vec(p_start, p_end)
+                cross_mag = v1.Crossed(v2).Magnitude()
+                if cross_mag < 1e-6:
+                    edge = BRepBuilderAPI_MakeEdge(p_start, p_end).Edge()
+                else:
+                    arc_curve = GC_MakeArcOfCircle(p_start, p_through, p_end).Value()
+                    edge = BRepBuilderAPI_MakeEdge(arc_curve).Edge()
+                builder.Add(edge)
+                current = p_end
+            elif kind == "carc_center":
+                start_pt, end_pt, center_pt = seg[1], seg[2], seg[3]
+                p_start = _resolve_pt(start_pt)
+                if current is not None and current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"carc start {start_pt} does not match current position"
+                    )
+                if current is None:
+                    current = p_start
+                p_end = _resolve_pt(end_pt)
+                p_center = _resolve_pt(center_pt)
+                if p_start.Distance(p_end) < 1e-6:
+                    continue
+                edge = _make_center_arc_edge(p_start, p_end, p_center, self._plane)
+                builder.Add(edge)
+                current = p_end
+            elif kind == "carc_radius":
+                start_pt, end_pt, radius = seg[1], seg[2], seg[3]
+                p_start = _resolve_pt(start_pt)
+                if current is not None and current.Distance(p_start) > 1e-6:
+                    raise ValueError(
+                        f"carc start {start_pt} does not match current position"
+                    )
+                if current is None:
+                    current = p_start
+                p_end = _resolve_pt(end_pt)
+                if p_start.Distance(p_end) < 1e-6:
+                    continue
+                edge = _make_radius_arc_edge(p_start, p_end, float(radius), self._plane)
+                builder.Add(edge)
+                current = p_end
+            elif kind == "bezier":
+                pts_raw = seg[1]
+                all_pts = []
+                if current is not None:
+                    all_pts.append(current)
+                for p in pts_raw:
+                    all_pts.append(_resolve_pt(p))
+                if len(all_pts) < 2:
+                    continue
+                arr = TColgp_Array1OfPnt(1, len(all_pts))
+                for i, p in enumerate(all_pts):
+                    arr.SetValue(i + 1, p)
+                bspline = GeomAPI_PointsToBSpline(arr).Curve()
+                edge = BRepBuilderAPI_MakeEdge(bspline).Edge()
+                builder.Add(edge)
+                current = all_pts[-1]
+            elif kind == "spline":
+                pts_raw = seg[1]
+                all_pts = []
+                if current is not None:
+                    all_pts.append(current)
+                for p in pts_raw:
+                    all_pts.append(_resolve_pt(p))
+                if len(all_pts) < 2:
+                    continue
+                arr = TColgp_Array1OfPnt(1, len(all_pts))
+                for i, p in enumerate(all_pts):
+                    arr.SetValue(i + 1, p)
+                bspline = GeomAPI_PointsToBSpline(arr).Curve()
+                edge = BRepBuilderAPI_MakeEdge(bspline).Edge()
+                builder.Add(edge)
+                current = all_pts[-1]
+
+        # No auto-close — open wire
+        wire = builder.Wire()
+        new_wires = list(self._wires)
+        new_wires.append(wire)
+        return self._copy(_wires=new_wires)
+
     # --- 2D cursor ---
 
     def moveTo(self, x, y):

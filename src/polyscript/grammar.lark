@@ -130,6 +130,7 @@ func_greedy_arg: NAME ":" kwarg_val  -> kwarg
         | "polygon" greedy_args              -> pipe_polygon
         | "text" greedy_args                 -> pipe_text
         | "sketch" "[" _bracket_nl sketch_start ("," _bracket_nl sketch_segment)* ","? _bracket_nl "]" -> pipe_sketch
+        | "path" "[" _bracket_nl path_segment ("," _bracket_nl path_segment)* ","? _bracket_nl "]" -> pipe_path
         | "box" greedy_args                   -> pipe_box
         | "cylinder" greedy_args             -> pipe_cylinder
         | "sphere" greedy_args               -> pipe_sphere
@@ -219,6 +220,7 @@ arg: NAME ":" expr    -> kwarg
           | "polar" greedy_args        -> polar_spec
           | "grid" greedy_args         -> grid_spec
           | "sketch" "[" _bracket_nl sketch_start ("," _bracket_nl sketch_segment)* ","? _bracket_nl "]" -> sketch_expr
+          | "path" "[" _bracket_nl path_segment ("," _bracket_nl path_segment)* ","? _bracket_nl "]" -> path_expr
           | "union" bracket_expr     -> union_source
           | "diff" bracket_expr      -> diff_source
           | "inter" bracket_expr     -> inter_source
@@ -230,6 +232,14 @@ sketch_segment: "arc" tuple tuple tuple             -> sketch_arc
               | "carc" tuple tuple NAME ":" greedy_val -> sketch_carc_radius
               | "bezier" greedy_args                -> sketch_bezier
               | tuple                               -> sketch_line
+
+path_segment: "line" tuple tuple                   -> path_line_seg
+            | "arc" tuple tuple tuple              -> path_arc_seg
+            | "carc" tuple tuple tuple             -> path_carc_center_seg
+            | "carc" tuple tuple NAME ":" greedy_val -> path_carc_radius_seg
+            | "bezier" "[" _bracket_nl tuple ("," _bracket_nl tuple)* ","? _bracket_nl "]" -> path_bezier_seg
+            | "spline" "[" _bracket_nl tuple ("," _bracket_nl tuple)* ","? _bracket_nl "]" -> path_spline_seg
+            | tuple                                -> path_tuple_seg
 
 tuple: "(" expr "," expr ("," expr)* ")"
 
@@ -245,7 +255,7 @@ SELECTOR: /[><=+][XYZ]/
 DOLLAR_NAME: /\$[a-zA-Z_]\w*/
 
 // NAME excludes all keywords to prevent greedy-arg consumption of structural tokens
-NAME: /(?!(?:box|cylinder|sphere|cone|torus|wedge|rect|circle|ellipse|polyline|polygon|text|line|arc|carc|bezier|helix|spline|sketch|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|loft|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
+NAME: /(?!(?:box|cylinder|sphere|cone|torus|wedge|rect|circle|ellipse|polyline|polygon|text|line|arc|carc|bezier|helix|spline|sketch|path|faces|edges|verts|points|workplane|fillet|chamfer|shell|offset|diff|union|inter|place|hole|cut|extrude|revolve|sweep|loft|color|translate|rotate|scale|mirror|move|moveto|polar|grid|as|def|import|if|then|else|and|or|for|in|range|true|false|pi)\b)[a-zA-Z_]\w*/
 _MOVE: /move(?!to\b)/
 
 %import common.NUMBER

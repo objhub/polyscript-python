@@ -245,6 +245,16 @@ class SketchExpr(Node):
     segments: list[Node] = field(default_factory=list)
 
 
+@dataclass
+class PathLiteral(Node):
+    """path [...] — open wire from line/arc/carc/bezier/spline segments.
+
+    Like sketch but without auto-close. Supports 2D and 3D coordinates.
+    """
+    start: Node | None = None    # first tuple if it's a bare start point
+    segments: list[Node] = field(default_factory=list)
+
+
 # --- Path Primitives ---
 
 @dataclass

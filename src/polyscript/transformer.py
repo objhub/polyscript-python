@@ -224,6 +224,50 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         return ast.BezierPath(points=args[0] if args else None)
 
+    # --- Path Literal ---
+
+    def path_expr(self, items):
+        return self._build_path_literal(items)
+
+    def path_tuple_seg(self, items):
+        """Bare tuple segment in path: marks a line-to or start point."""
+        return items[0]  # TupleLit
+
+    def path_line_seg(self, items):
+        return ast.LinePath(start=items[0], end=items[1])
+
+    def path_arc_seg(self, items):
+        return ast.ArcPath(start=items[0], through=items[1], end=items[2])
+
+    def path_carc_center_seg(self, items):
+        return ast.CenterArcPath(start=items[0], end=items[1], center=items[2])
+
+    def path_carc_radius_seg(self, items):
+        name = str(items[2])
+        if name != "r":
+            raise ValueError(f"carc named arg must be 'r:', got '{name}:'")
+        return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
+
+    def path_bezier_seg(self, items):
+        return ast.BezierPath(points=ast.ListLit(values=list(items)))
+
+    def path_spline_seg(self, items):
+        return ast.SplinePath(points=ast.ListLit(values=list(items)))
+
+    @staticmethod
+    def _build_path_literal(items):
+        """Build PathLiteral from path segments.
+
+        If the first segment is a bare TupleLit (not a named segment like
+        ArcPath, LinePath, etc.), treat it as the start point.
+        """
+        segments = list(items)
+        start = None
+        if segments and isinstance(segments[0], ast.TupleLit):
+            start = segments[0]
+            segments = segments[1:]
+        return ast.PathLiteral(start=start, segments=segments)
+
     # --- Path Primitives ---
 
     def line_path(self, items):
@@ -575,6 +619,10 @@ class PolyTransformer(LarkTransformer):
         return ast.Implicit2DPrimitive(primitive=ast.SketchExpr(
             start=start, segments=segments,
         ))
+
+    def pipe_path(self, items):
+        path_lit = self._build_path_literal(items)
+        return ast.Implicit2DPrimitive(primitive=path_lit)
 
     # --- Implicit 3D in pipes ---
 

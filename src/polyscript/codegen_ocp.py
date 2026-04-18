@@ -29,6 +29,7 @@ _2D_PRIMITIVE_NAMES = {
     ast.Polygon: "polygon",
     ast.Text: "text",
     ast.SketchExpr: "sketch",
+    ast.PathLiteral: "path",
 }
 
 
@@ -226,6 +227,7 @@ class OCPCodegen:
         ast.BezierPath:    "_gen_bezier_path",
         ast.SplinePath:    "_gen_spline_path",
         ast.SketchExpr:    "_gen_sketch",
+        ast.PathLiteral:   "_gen_path_literal",
         ast.Workplane:     "_gen_workplane_source",
     }
 
@@ -246,7 +248,7 @@ class OCPCodegen:
             return PipelineContext.THREE_D
         if isinstance(source, (ast.Rect, ast.Circle, ast.Ellipse,
                                ast.Polyline, ast.Polygon, ast.Text,
-                               ast.SketchExpr)):
+                               ast.SketchExpr, ast.PathLiteral)):
             return PipelineContext.TWO_D
         if isinstance(source, (ast.LinePath, ast.ArcPath, ast.CenterArcPath,
                                ast.BezierPath,
@@ -591,6 +593,46 @@ class OCPCodegen:
             elif isinstance(seg, ast.BezierPath):
                 pts = self._gen_expr(seg.points)
                 parts.append(f', ("bezier", {pts})')
+        parts.append(")")
+        return "".join(parts)
+
+    # --- Path Literal ---
+
+    def _gen_path_literal(self, node: ast.PathLiteral) -> str:
+        return self._gen_path_segments('cq.Workplane("XY")', node)
+
+    def _gen_path_segments(self, current: str, node: ast.PathLiteral) -> str:
+        """Generate path(...) call with segments on the given workplane expression."""
+        start = self._gen_expr(node.start) if node.start else "None"
+        parts = [f'{current}.path({start}']
+        for seg in node.segments:
+            if isinstance(seg, ast.TupleLit):
+                pt = self._gen_expr(seg)
+                parts.append(f', ("line", {pt})')
+            elif isinstance(seg, ast.LinePath):
+                s = self._gen_expr(seg.start)
+                e = self._gen_expr(seg.end)
+                parts.append(f', ("line_se", {s}, {e})')
+            elif isinstance(seg, ast.ArcPath):
+                s = self._gen_expr(seg.start)
+                through = self._gen_expr(seg.through)
+                end = self._gen_expr(seg.end)
+                parts.append(f', ("arc", {s}, {through}, {end})')
+            elif isinstance(seg, ast.CenterArcPath):
+                s = self._gen_expr(seg.start)
+                end = self._gen_expr(seg.end)
+                if seg.center is not None:
+                    center = self._gen_expr(seg.center)
+                    parts.append(f', ("carc_center", {s}, {end}, {center})')
+                else:
+                    r = self._gen_expr(seg.radius)
+                    parts.append(f', ("carc_radius", {s}, {end}, {r})')
+            elif isinstance(seg, ast.BezierPath):
+                pts = self._gen_expr(seg.points)
+                parts.append(f', ("bezier", {pts})')
+            elif isinstance(seg, ast.SplinePath):
+                pts = self._gen_expr(seg.points)
+                parts.append(f', ("spline", {pts})')
         parts.append(")")
         return "".join(parts)
 
@@ -1113,6 +1155,8 @@ class OCPCodegen:
             return f'{current}.text({content}, {size}, 1)'
         elif isinstance(prim, ast.SketchExpr):
             return self._gen_sketch_segments(current, prim)
+        elif isinstance(prim, ast.PathLiteral):
+            return self._gen_path_segments(current, prim)
         else:
             raise CodegenError(f"Cannot use {type(prim).__name__} as implicit 2D in pipe")
 
