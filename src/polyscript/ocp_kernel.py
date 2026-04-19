@@ -106,10 +106,17 @@ def _scale_shape(shape: TopoDS_Shape, sx: float, sy: float, sz: float, center: t
 
 
 def _face_center(face: TopoDS_Face) -> gp_Pnt:
-    """Compute the center of mass of a face."""
-    props = GProp_GProps()
-    BRepGProp.SurfaceProperties_s(face, props)
-    return props.CentreOfMass()
+    """Return the face's bounding-box center (matching the TypeScript kernel).
+
+    Using the bbox center keeps the workplane origin at the visual middle of
+    the face even when the face is asymmetric (e.g. a side face with a notch
+    cut out). The centroid (BRepGProp center of mass) would drift toward the
+    heavier side, making `at:` offsets behave differently from the TS output.
+    """
+    bb = Bnd_Box()
+    BRepBndLib.Add_s(face, bb)
+    xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
+    return gp_Pnt((xmin + xmax) / 2, (ymin + ymax) / 2, (zmin + zmax) / 2)
 
 
 def _face_normal(face: TopoDS_Face) -> gp_Dir:
