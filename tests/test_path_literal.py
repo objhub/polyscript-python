@@ -42,7 +42,7 @@ class TestPathParsing:
 
     def test_arc_radius(self):
         """path with arc radius mixed in."""
-        tree = parse("path [(0,0), arc (0,0) (10,10) r:5]")
+        tree = parse("path [(0,0), arc (0,0) (10,10) radius:5]")
         prog = transform(tree)
         stmt = prog.statements[0]
         seg = stmt.segments[0]
@@ -155,7 +155,7 @@ class TestPathCodegen:
 
     def test_path_arc_radius_codegen(self):
         code = compile_source(
-            "path [(0,0), arc (0,0) (10,10) r:5]"
+            "path [(0,0), arc (0,0) (10,10) radius:5]"
         )
         assert ".path(" in code
         assert '("carc_radius"' in code
@@ -246,7 +246,7 @@ class TestPathExecution:
     def test_path_with_arc_radius(self):
         from polyscript.executor import execute
         result = execute(
-            "path [(0,0), arc (0,0) (10,0) r:5]"
+            "path [(0,0), arc (0,0) (10,0) radius:5]"
         )
         assert result is not None
         assert len(result._wires) > 0
@@ -279,10 +279,10 @@ class TestPathExecution:
         assert result._shape is not None
 
     def test_path_sweep_with_arc_radius(self):
-        """circle swept along a path with arc r:."""
+        """circle swept along a path with arc radius:."""
         from polyscript.executor import execute
         result = execute(
-            "circle 2 | sweep (path [(0,0), (10,0), arc (10,0) (15,5) r:5])"
+            "circle 2 | sweep (path [(0,0), (10,0), arc (10,0) (15,5) radius:5])"
         )
         assert result is not None
         assert result._shape is not None

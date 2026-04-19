@@ -304,7 +304,13 @@ class OCPCodegen:
         if isinstance(op, ast.ColorOp):
             return current_ctx  # preserves context
         if isinstance(op, (ast.Move, ast.MoveTo)):
-            return current_ctx  # 2D context operations
+            # move/moveto after face/edge selection establishes a 2D drawing
+            # context (codegen already injects an implicit .workplane() which
+            # clears _selected_faces). Transition ctx so subsequent ops like
+            # hole dispatch to the 2D variant (.hole) instead of .holeOnFaces.
+            if current_ctx in (PipelineContext.FACE_SELECTION, PipelineContext.EDGE_SELECTION):
+                return PipelineContext.TWO_D
+            return current_ctx
         if isinstance(op, ast.AsTag):
             return current_ctx  # preserves context
         return PipelineContext.UNKNOWN

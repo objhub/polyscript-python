@@ -218,10 +218,10 @@ class PolyTransformer(LarkTransformer):
         return ast.CenterArcPath(start=items[0], end=items[1], center=items[3])
 
     def sketch_arc_radius(self, items):
-        # items: [start_tuple, end_tuple, NAME_token("r"), radius_value]
+        # items: [start_tuple, end_tuple, NAME_token("radius"), radius_value]
         name = str(items[2])
-        if name != "r":
-            raise ValueError(f"arc named arg must be 'r:', got '{name}:'")
+        if name != "radius":
+            raise ValueError(f"arc named arg must be 'radius:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
     def sketch_bezier(self, items):
@@ -251,8 +251,8 @@ class PolyTransformer(LarkTransformer):
 
     def path_arc_radius_seg(self, items):
         name = str(items[2])
-        if name != "r":
-            raise ValueError(f"arc named arg must be 'r:', got '{name}:'")
+        if name != "radius":
+            raise ValueError(f"arc named arg must be 'radius:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
     def path_bezier_seg(self, items):
@@ -287,7 +287,7 @@ class PolyTransformer(LarkTransformer):
     def arc_path(self, items):
         args, kwargs = self._split_args(items[0])
         center = kwargs.get("center")
-        r = kwargs.get("r")
+        radius = kwargs.get("radius")
         if center is not None:
             # arc start end center:(cx,cy)
             return ast.CenterArcPath(
@@ -295,12 +295,12 @@ class PolyTransformer(LarkTransformer):
                 end=args[1] if len(args) > 1 else None,
                 center=center,
             )
-        if r is not None:
-            # arc start end r:radius
+        if radius is not None:
+            # arc start end radius:radius
             return ast.CenterArcPath(
                 start=args[0] if len(args) > 0 else None,
                 end=args[1] if len(args) > 1 else None,
-                radius=r,
+                radius=radius,
             )
         # arc start through end (3-point)
         return ast.ArcPath(

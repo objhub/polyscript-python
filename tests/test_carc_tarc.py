@@ -3,7 +3,7 @@
 Breaking change: carc keyword removed; all arc variants now use 'arc'.
   arc start through end              -- 3-point arc (ArcPath)
   arc start end center:(cx,cy)       -- center arc (CenterArcPath)
-  arc start end r:radius             -- radius arc (CenterArcPath)
+  arc start end radius:radius         -- radius arc (CenterArcPath)
 
 Also tests auto-line connection when segment start doesn't match
 the previous segment's end.
@@ -38,7 +38,7 @@ class TestArcCenterParsing:
         assert seg.radius is None
 
     def test_arc_radius(self):
-        tree = parse("sketch [(10, 0), arc (10, 0) (0, 10) r:10, (0, 0)]")
+        tree = parse("sketch [(10, 0), arc (10, 0) (0, 10) radius:10, (0, 0)]")
         prog = transform(tree)
         seg = prog.statements[0].segments[0]
         assert isinstance(seg, ast.CenterArcPath)
@@ -48,7 +48,7 @@ class TestArcCenterParsing:
         assert seg.radius is not None
 
     def test_arc_radius_with_variable(self):
-        tree = parse("$r = 10\nsketch [($r, 0), arc ($r, 0) (0, $r) r:$r, (0, 0)]")
+        tree = parse("$r = 10\nsketch [($r, 0), arc ($r, 0) (0, $r) radius:$r, (0, 0)]")
         prog = transform(tree)
         sketch = prog.statements[1]
         seg = sketch.segments[0]
@@ -124,7 +124,7 @@ class TestPathPrimitiveParsing:
         assert stmt.radius is None
 
     def test_arc_path_radius(self):
-        tree = parse("arc (0, 0) (0, 10) r:10")
+        tree = parse("arc (0, 0) (0, 10) radius:10")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert isinstance(stmt, ast.CenterArcPath)
@@ -159,7 +159,7 @@ class TestArcCodegen:
 
     def test_arc_radius_codegen(self):
         code = compile_source(
-            'sketch [(10, 0), arc (10, 0) (0, 10) r:10, (0, 0), (10, 0)]'
+            'sketch [(10, 0), arc (10, 0) (0, 10) radius:10, (0, 0), (10, 0)]'
         )
         assert ".sketch(" in code
         assert '("carc_radius"' in code
@@ -193,7 +193,7 @@ class TestArcCenterExecution:
         """Quarter arc using radius specification."""
         result = execute(
             "$r = 10\n"
-            "sketch [($r, 0), arc ($r, 0) (0, $r) r:$r, (0, 0), ($r, 0)]"
+            "sketch [($r, 0), arc ($r, 0) (0, $r) radius:$r, (0, 0), ($r, 0)]"
         )
         assert result is not None
         assert len(result._wires) > 0
@@ -202,26 +202,26 @@ class TestArcCenterExecution:
         """Radius-based arc extruded to 3D solid."""
         result = execute(
             "$r = 10\n"
-            "sketch [($r, 0), arc ($r, 0) (0, $r) r:$r, (0, 0), ($r, 0)] | extrude 5"
+            "sketch [($r, 0), arc ($r, 0) (0, $r) radius:$r, (0, 0), ($r, 0)] | extrude 5"
         )
         assert result is not None
         assert result._shape is not None
 
     def test_arc_rounded_rect(self):
-        """Rounded rectangle with 4 arc r: segments."""
+        """Rounded rectangle with 4 arc radius: segments."""
         src = """
 $w = 20
 $h = 10
 $cr = 2
 sketch [
   ($w/2 - $cr, -$h/2),
-  arc ($w/2 - $cr, -$h/2) ($w/2, -$h/2 + $cr) r:$cr,
+  arc ($w/2 - $cr, -$h/2) ($w/2, -$h/2 + $cr) radius:$cr,
   ($w/2, $h/2 - $cr),
-  arc ($w/2, $h/2 - $cr) ($w/2 - $cr, $h/2) r:$cr,
+  arc ($w/2, $h/2 - $cr) ($w/2 - $cr, $h/2) radius:$cr,
   (-$w/2 + $cr, $h/2),
-  arc (-$w/2 + $cr, $h/2) (-$w/2, $h/2 - $cr) r:$cr,
+  arc (-$w/2 + $cr, $h/2) (-$w/2, $h/2 - $cr) radius:$cr,
   (-$w/2, -$h/2 + $cr),
-  arc (-$w/2, -$h/2 + $cr) (-$w/2 + $cr, -$h/2) r:$cr
+  arc (-$w/2, -$h/2 + $cr) (-$w/2 + $cr, -$h/2) radius:$cr
 ] | extrude 5
 """
         result = execute(src)
@@ -239,7 +239,7 @@ sketch [
         """Radius smaller than half chord length should raise ExecutionError."""
         with pytest.raises(ExecutionError, match="chord length"):
             execute(
-                "sketch [(10, 0), arc (10, 0) (0, 10) r:3, (0, 0), (10, 0)]"
+                "sketch [(10, 0), arc (10, 0) (0, 10) radius:3, (0, 0), (10, 0)]"
             )
 
 
@@ -268,9 +268,9 @@ class TestAutoLineConnection:
         assert len(result._wires) > 0
 
     def test_arc_radius_start_mismatch_auto_line(self):
-        """arc r: start does not match previous segment end -> auto-line inserted."""
+        """arc radius: start does not match previous segment end -> auto-line inserted."""
         result = execute(
-            "sketch [(10, 0), arc (5, 0) (0, 10) r:10, (0, 0), (10, 0)]"
+            "sketch [(10, 0), arc (5, 0) (0, 10) radius:10, (0, 0), (10, 0)]"
         )
         assert result is not None
         assert len(result._wires) > 0
@@ -325,11 +325,11 @@ class TestArcGeometry:
         assert ymax <= r + 0.1
 
     def test_arc_radius_matches_center(self):
-        """arc r:R and arc center: should produce same bbox."""
+        """arc radius:R and arc center: should produce same bbox."""
         from polyscript.ocp_kernel import _bounding_box
         r = 10
         src_center = f"sketch [({r}, 0), arc ({r}, 0) (0, {r}) center:(0, 0), (0, 0), ({r}, 0)] | extrude 1"
-        src_radius = f"sketch [({r}, 0), arc ({r}, 0) (0, {r}) r:{r}, (0, 0), ({r}, 0)] | extrude 1"
+        src_radius = f"sketch [({r}, 0), arc ({r}, 0) (0, {r}) radius:{r}, (0, 0), ({r}, 0)] | extrude 1"
         result_c = execute(src_center)
         result_r = execute(src_radius)
         bb_c = _bounding_box(result_c._shape).Get()
