@@ -90,7 +90,7 @@ class PolyTransformer(LarkTransformer):
     def cylinder(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Cylinder(
-            radius=args[0] if len(args) > 0 else kwargs.get("r"),
+            radius=args[0] if len(args) > 0 else kwargs.get("radius"),
             height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
@@ -100,7 +100,7 @@ class PolyTransformer(LarkTransformer):
     def sphere(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Sphere(
-            radius=args[0] if args else kwargs.get("r"),
+            radius=args[0] if args else kwargs.get("radius"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),
@@ -157,7 +157,7 @@ class PolyTransformer(LarkTransformer):
     def circle(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Circle(
-            radius=args[0] if args else kwargs.get("r"),
+            radius=args[0] if args else kwargs.get("radius"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),
@@ -181,7 +181,7 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         return ast.Polygon(
             n=args[0] if len(args) > 0 else kwargs.get("n"),
-            r=args[1] if len(args) > 1 else kwargs.get("r"),
+            r=args[1] if len(args) > 1 else kwargs.get("radius"),
             angle=kwargs.get("angle"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),
@@ -228,42 +228,42 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         return ast.BezierPath(points=args[0] if args else None)
 
-    # --- Path Literal ---
+    # --- Wire Literal ---
 
-    def path_expr(self, items):
-        return self._build_path_literal(items)
+    def wire_expr(self, items):
+        return self._build_wire_literal(items)
 
-    def path_tuple_seg(self, items):
-        """Bare tuple segment in path: marks a line-to or start point."""
+    def wire_tuple_seg(self, items):
+        """Bare tuple segment in wire: marks a line-to or start point."""
         return items[0]  # TupleLit
 
-    def path_line_seg(self, items):
+    def wire_line_seg(self, items):
         return ast.LinePath(start=items[0], end=items[1])
 
-    def path_arc_3p_seg(self, items):
+    def wire_arc_3p_seg(self, items):
         return ast.ArcPath(start=items[0], through=items[1], end=items[2])
 
-    def path_arc_center_seg(self, items):
+    def wire_arc_center_seg(self, items):
         name = str(items[2])
         if name != "center":
             raise ValueError(f"arc named arg must be 'center:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], center=items[3])
 
-    def path_arc_radius_seg(self, items):
+    def wire_arc_radius_seg(self, items):
         name = str(items[2])
         if name != "radius":
             raise ValueError(f"arc named arg must be 'radius:', got '{name}:'")
         return ast.CenterArcPath(start=items[0], end=items[1], radius=items[3])
 
-    def path_bezier_seg(self, items):
+    def wire_bezier_seg(self, items):
         return ast.BezierPath(points=ast.ListLit(values=list(items)))
 
-    def path_spline_seg(self, items):
+    def wire_spline_seg(self, items):
         return ast.SplinePath(points=ast.ListLit(values=list(items)))
 
     @staticmethod
-    def _build_path_literal(items):
-        """Build PathLiteral from path segments.
+    def _build_wire_literal(items):
+        """Build WireLiteral from wire segments.
 
         If the first segment is a bare TupleLit (not a named segment like
         ArcPath, LinePath, etc.), treat it as the start point.
@@ -273,7 +273,7 @@ class PolyTransformer(LarkTransformer):
         if segments and isinstance(segments[0], ast.TupleLit):
             start = segments[0]
             segments = segments[1:]
-        return ast.PathLiteral(start=start, segments=segments)
+        return ast.WireLiteral(start=start, segments=segments)
 
     # --- Path Primitives ---
 
@@ -531,7 +531,7 @@ class PolyTransformer(LarkTransformer):
 
     def sweep(self, items):
         args, kwargs = self._split_args(items[0])
-        return ast.Sweep(path=args[0] if args else None)
+        return ast.Sweep(profile=args[0] if args else None)
 
     def color_op(self, items):
         args, kwargs = self._split_args(items[0])
@@ -583,7 +583,7 @@ class PolyTransformer(LarkTransformer):
     def pipe_circle(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit2DPrimitive(primitive=ast.Circle(
-            radius=args[0] if args else kwargs.get("r"),
+            radius=args[0] if args else kwargs.get("radius"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),
@@ -609,7 +609,7 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit2DPrimitive(primitive=ast.Polygon(
             n=args[0] if len(args) > 0 else kwargs.get("n"),
-            r=args[1] if len(args) > 1 else kwargs.get("r"),
+            r=args[1] if len(args) > 1 else kwargs.get("radius"),
             angle=kwargs.get("angle"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),
@@ -629,9 +629,9 @@ class PolyTransformer(LarkTransformer):
             start=start, segments=segments,
         ))
 
-    def pipe_path(self, items):
-        path_lit = self._build_path_literal(items)
-        return ast.Implicit2DPrimitive(primitive=path_lit)
+    def pipe_wire(self, items):
+        wire_lit = self._build_wire_literal(items)
+        return ast.Implicit2DPrimitive(primitive=wire_lit)
 
     # --- Implicit 3D in pipes ---
 
@@ -649,7 +649,7 @@ class PolyTransformer(LarkTransformer):
     def pipe_cylinder(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit3DPrimitive(primitive=ast.Cylinder(
-            radius=args[0] if len(args) > 0 else kwargs.get("r"),
+            radius=args[0] if len(args) > 0 else kwargs.get("radius"),
             height=args[1] if len(args) > 1 else kwargs.get("h"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
@@ -659,7 +659,7 @@ class PolyTransformer(LarkTransformer):
     def pipe_sphere(self, items):
         args, kwargs = self._split_args(items[0])
         return ast.Implicit3DPrimitive(primitive=ast.Sphere(
-            radius=args[0] if args else kwargs.get("r"),
+            radius=args[0] if args else kwargs.get("radius"),
             center=kwargs.get("center"),
             at=kwargs.get("at"),
             origin=kwargs.get("origin"),

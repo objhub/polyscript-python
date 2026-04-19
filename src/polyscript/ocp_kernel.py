@@ -381,11 +381,27 @@ def _plane_ydir(plane: gp_Pln) -> gp_Dir:
     return plane.YAxis().Direction()
 
 
+def _plane_draw_ydir(plane: gp_Pln) -> gp_Dir:
+    """Return the 2D y-axis direction for drawing (2D→3D coordinate mapping).
+
+    OCC derives ydir = normal × xdir via the right-hand rule.  For the named
+    XZ plane (normal=(0,1,0), xdir=(1,0,0)) this gives ydir=(0,0,-1), but the
+    user expectation — and the TypeScript implementation — is that 2D y maps to
+    world +Z.  Detect this case by checking the three axis directions exactly
+    and return the corrected direction so that _to_3d/etc. are consistent with TS.
+    """
+    yd = _plane_ydir(plane)
+    # XZ named plane: normal ≈ +Y, xdir ≈ +X → OCC ydir ≈ -Z → correct to +Z.
+    if yd.Z() < -0.5 and _plane_normal(plane).Y() > 0.9 and _plane_xdir(plane).X() > 0.9:
+        return gp_Dir(0, 0, 1)
+    return yd
+
+
 def _to_3d(plane: gp_Pln, x: float, y: float) -> gp_Pnt:
     """Convert 2D coordinates on a plane to 3D point."""
     o = _plane_origin(plane)
     xd = _plane_xdir(plane)
-    yd = _plane_ydir(plane)
+    yd = _plane_draw_ydir(plane)
     return gp_Pnt(
         o.X() + x * xd.X() + y * yd.X(),
         o.Y() + x * xd.Y() + y * yd.Y(),
@@ -408,7 +424,7 @@ def _last_edge_of_wire(wire: TopoDS_Wire) -> TopoDS_Edge:
 def _tangent_2d_to_3d(plane: gp_Pln, tx: float, ty: float) -> gp_Vec:
     """Convert a 2D tangent direction to a 3D vector on *plane*."""
     xd = _plane_xdir(plane)
-    yd = _plane_ydir(plane)
+    yd = _plane_draw_ydir(plane)
     return gp_Vec(
         tx * xd.X() + ty * yd.X(),
         tx * xd.Y() + ty * yd.Y(),
@@ -531,7 +547,7 @@ def _project_to_2d(plane: gp_Pln, x: float, y: float, z: float) -> tuple[float, 
     """Project a 3D world point onto *plane*, returning local 2D (u, v)."""
     o = _plane_origin(plane)
     xd = _plane_xdir(plane)
-    yd = _plane_ydir(plane)
+    yd = _plane_draw_ydir(plane)
     dx, dy, dz = x - o.X(), y - o.Y(), z - o.Z()
     u = dx * xd.X() + dy * xd.Y() + dz * xd.Z()
     v = dx * yd.X() + dy * yd.Y() + dz * yd.Z()
@@ -564,7 +580,7 @@ def _make_ellipse_wire(rx: float, ry: float, plane: gp_Pln, cx: float = 0, cy: f
         elips = gp_Elips(ax2, rx, ry)
     else:
         # gp_Elips requires major >= minor, so rotate
-        yd = _plane_ydir(plane)
+        yd = _plane_draw_ydir(plane)
         ax2_rot = gp_Ax2(center, _plane_normal(plane), gp_Dir(yd.X(), yd.Y(), yd.Z()))
         elips = gp_Elips(ax2_rot, ry, rx)
     edge = BRepBuilderAPI_MakeEdge(elips).Edge()
@@ -1071,10 +1087,11 @@ class Workplane:
 
     # --- Path Literal (open wire) ---
 
-    def path(self, start, *segments):
-        """Build an open wire from line/arc/bezier/spline segments.
+    def wire(self, start, *segments):
+        """Build a wire from line/arc/bezier/spline segments.
 
-        Like :meth:`sketch` but does **not** auto-close. Supports both
+        Like :meth:`sketch` but does **not** auto-close (resulting wire
+        may be open or closed depending on segment data). Supports both
         2D ``(x, y)`` and 3D ``(x, y, z)`` coordinates.
 
         *start* is a 2D or 3D tuple — the starting point. ``None`` is
@@ -1412,7 +1429,7 @@ class Workplane:
                 # Project onto the current workplane
                 o = _plane_origin(self._plane)
                 xd = _plane_xdir(self._plane)
-                yd = _plane_ydir(self._plane)
+                yd = _plane_draw_ydir(self._plane)
                 dx = p.X() - o.X()
                 dy = p.Y() - o.Y()
                 dz = p.Z() - o.Z()
@@ -1800,29 +1817,38 @@ class Workplane:
             new_shape = BRepAlgoAPI_Fuse(self._shape, solid).Shape()
         return self._copy(_shape=new_shape, _wires=[])
 
-    def sweep(self, path, isFrenet=False):
+    def sweep(self, profile, isFrenet=False):
+        """Sweep ``profile`` along this workplane's wire (the path/spine).
+
+        The pipeline subject is the path; ``profile`` is the cross-section
+        passed as argument.
+        """
         if not self._wires:
             return self
-        wire = self._wires[-1]
+        # This workplane's last wire is the PATH (spine).
+        path_wire = self._wires[-1]
 
-        if isinstance(path, TopoDS_Wire):
-            path_wire = path
-        elif isinstance(path, Workplane):
-            # Extract wire from workplane
-            if path._wires:
-                path_wire = path._wires[-1]
-            elif path._shape:
-                # Try to get wire from shape
-                exp = TopExp_Explorer(path._shape, TopAbs_EDGE)
+        # Extract the profile wire + its source workplane from the argument.
+        # The profile was authored on its own workplane, not on the path's
+        # workplane, so use the profile's plane as the source frame below.
+        profile_plane = self._plane  # fallback: assume same as path's plane
+        if isinstance(profile, TopoDS_Wire):
+            wire = profile
+        elif isinstance(profile, Workplane):
+            profile_plane = profile._plane
+            if profile._wires:
+                wire = profile._wires[-1]
+            elif profile._shape:
+                exp = TopExp_Explorer(profile._shape, TopAbs_EDGE)
                 builder = BRepBuilderAPI_MakeWire()
                 while exp.More():
                     builder.Add(TopoDS.Edge_s(exp.Current()))
                     exp.Next()
-                path_wire = builder.Wire()
+                wire = builder.Wire()
             else:
                 return self
         else:
-            path_wire = path
+            wire = profile
 
         # Transform the profile to the start of the path so that
         # the sweep can work correctly.  The profile is assumed to lie in
@@ -1851,10 +1877,10 @@ class Workplane:
 
         ax2_target = gp_Ax2(start_pt, tangent_dir, ref)
 
-        # Source coordinate system: the workplane normal + origin
-        origin = _plane_origin(self._plane)
-        normal = _plane_normal(self._plane)
-        xdir = _plane_xdir(self._plane)
+        # Source coordinate system: the profile's workplane normal + origin
+        origin = _plane_origin(profile_plane)
+        normal = _plane_normal(profile_plane)
+        xdir = _plane_xdir(profile_plane)
         ax2_source = gp_Ax2(origin, normal, xdir)
 
         trsf = gp_Trsf()

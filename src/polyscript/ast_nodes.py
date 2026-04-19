@@ -246,10 +246,12 @@ class SketchExpr(Node):
 
 
 @dataclass
-class PathLiteral(Node):
-    """path [...] — open wire from line/arc/bezier/spline segments.
+class WireLiteral(Node):
+    """wire [...] — wire from line/arc/bezier/spline segments.
 
     Like sketch but without auto-close. Supports 2D and 3D coordinates.
+    May be open or closed depending on whether the segment data forms a
+    closed loop. Used mainly as sweep path (spine).
     """
     start: Node | None = None    # first tuple if it's a bare start point
     segments: list[Node] = field(default_factory=list)
@@ -422,7 +424,7 @@ class Revolve(Node):
 
 @dataclass
 class Sweep(Node):
-    path: Node | None = None
+    profile: Node | None = None  # argument to sweep (spine is the pipeline subject)
 
 
 @dataclass

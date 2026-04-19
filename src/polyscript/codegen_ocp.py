@@ -29,7 +29,7 @@ _2D_PRIMITIVE_NAMES = {
     ast.Polygon: "polygon",
     ast.Text: "text",
     ast.SketchExpr: "sketch",
-    ast.PathLiteral: "path",
+    ast.WireLiteral: "wire",
 }
 
 
@@ -227,7 +227,7 @@ class OCPCodegen:
         ast.BezierPath:    "_gen_bezier_path",
         ast.SplinePath:    "_gen_spline_path",
         ast.SketchExpr:    "_gen_sketch",
-        ast.PathLiteral:   "_gen_path_literal",
+        ast.WireLiteral:   "_gen_wire_literal",
         ast.Workplane:     "_gen_workplane_source",
     }
 
@@ -248,7 +248,7 @@ class OCPCodegen:
             return PipelineContext.THREE_D
         if isinstance(source, (ast.Rect, ast.Circle, ast.Ellipse,
                                ast.Polyline, ast.Polygon, ast.Text,
-                               ast.SketchExpr, ast.PathLiteral)):
+                               ast.SketchExpr, ast.WireLiteral)):
             return PipelineContext.TWO_D
         if isinstance(source, (ast.LinePath, ast.ArcPath, ast.CenterArcPath,
                                ast.BezierPath,
@@ -602,15 +602,15 @@ class OCPCodegen:
         parts.append(")")
         return "".join(parts)
 
-    # --- Path Literal ---
+    # --- Wire Literal ---
 
-    def _gen_path_literal(self, node: ast.PathLiteral) -> str:
-        return self._gen_path_segments('cq.Workplane("XY")', node)
+    def _gen_wire_literal(self, node: ast.WireLiteral) -> str:
+        return self._gen_wire_segments('cq.Workplane("XY")', node)
 
-    def _gen_path_segments(self, current: str, node: ast.PathLiteral) -> str:
-        """Generate path(...) call with segments on the given workplane expression."""
+    def _gen_wire_segments(self, current: str, node: ast.WireLiteral) -> str:
+        """Generate wire(...) call with segments on the given workplane expression."""
         start = self._gen_expr(node.start) if node.start else "None"
-        parts = [f'{current}.path({start}']
+        parts = [f'{current}.wire({start}']
         for seg in node.segments:
             if isinstance(seg, ast.TupleLit):
                 pt = self._gen_expr(seg)
@@ -910,8 +910,8 @@ class OCPCodegen:
         return f'{current}.revolve({deg}, axisStart=(0,0,0), axisEnd={end})'
 
     def _gen_sweep(self, current: str, op: ast.Sweep) -> str:
-        path = self._gen_expr(op.path)
-        return f'{current}.sweep({path})'
+        profile = self._gen_expr(op.profile)
+        return f'{current}.sweep({profile})'
 
     def _gen_loft(self, current: str, op: ast.Loft) -> str:
         sections = self._gen_expr(op.sections)
@@ -1161,8 +1161,8 @@ class OCPCodegen:
             return f'{current}.text({content}, {size}, 1)'
         elif isinstance(prim, ast.SketchExpr):
             return self._gen_sketch_segments(current, prim)
-        elif isinstance(prim, ast.PathLiteral):
-            return self._gen_path_segments(current, prim)
+        elif isinstance(prim, ast.WireLiteral):
+            return self._gen_wire_segments(current, prim)
         else:
             raise CodegenError(f"Cannot use {type(prim).__name__} as implicit 2D in pipe")
 
