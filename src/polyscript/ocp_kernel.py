@@ -29,7 +29,7 @@ from OCP.BRepBuilderAPI import (
 )
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Edge, TopoDS_Wire, TopoDS, TopoDS_Builder, TopoDS_Compound
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX
+from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX, TopAbs_REVERSED
 from OCP.BRep import BRep_Tool
 from OCP.BRepBndLib import BRepBndLib
 from OCP.Bnd import Bnd_Box
@@ -131,11 +131,12 @@ def _face_normal(face: TopoDS_Face) -> gp_Dir:
     normal = d1u.Crossed(d1v)
     if normal.Magnitude() < 1e-10:
         return gp_Dir(0, 0, 1)
-    d = gp_Dir(normal)
-    # Check face orientation
-    if face.IsEqual(face):  # always true, but orientation from IsReversed
-        pass
-    return d
+    # REVERSED orientation means the outward normal is the opposite of the
+    # geometric surface normal (d1u × d1v). Without this flip, the normal
+    # for half of a box's faces points inward, breaking cutBlind/extrude.
+    if face.Orientation() == TopAbs_REVERSED:
+        normal.Reverse()
+    return gp_Dir(normal)
 
 
 def _edge_center(edge: TopoDS_Edge) -> gp_Pnt:
