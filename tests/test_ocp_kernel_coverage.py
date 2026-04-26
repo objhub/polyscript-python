@@ -722,31 +722,35 @@ class TestExportersEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# 2D union (wire merging)
+# 2D union (face-level boolean)
 # ---------------------------------------------------------------------------
 
-class TestUnion2DWireMerge:
-    """union() of two 2D-only Workplanes should merge wires, not drop them."""
+class TestUnion2DFaceLevel:
+    """union() of two 2D-only Workplanes performs face-level boolean and stores
+    the result in face2d (preserves merged outline / hole information)."""
 
-    def test_union_two_rects_merges_wires(self):
+    def test_union_two_rects_produces_face2d(self):
         wp1 = cq.Workplane("XY").rect(50, 10)
         wp2 = cq.Workplane("XY").rect(10, 40)
         merged = wp1.union(wp2)
-        assert len(merged._wires) == 2
+        assert merged._face2d is not None
+        assert merged._wires == []
         assert merged._shape is None
 
-    def test_union_two_circles_merges_wires(self):
+    def test_union_two_circles_produces_face2d(self):
         wp1 = cq.Workplane("XY").circle(10)
         wp2 = cq.Workplane("XY").circle(5)
         merged = wp1.union(wp2)
-        assert len(merged._wires) == 2
+        assert merged._face2d is not None
+        assert merged._wires == []
 
-    def test_union_three_2d_shapes_merges_wires(self):
+    def test_union_three_2d_shapes_chains(self):
         wp1 = cq.Workplane("XY").rect(20, 5)
         wp2 = cq.Workplane("XY").circle(3)
         wp3 = cq.Workplane("XY").rect(5, 20)
         merged = wp1.union(wp2).union(wp3)
-        assert len(merged._wires) == 3
+        assert merged._face2d is not None
+        assert merged._wires == []
 
     def test_union_2d_then_extrude_produces_shape(self):
         wp1 = cq.Workplane("XY").rect(50, 10)
@@ -754,10 +758,11 @@ class TestUnion2DWireMerge:
         merged = wp1.union(wp2)
         result = merged.extrude(5)
         assert result._shape is not None
+        assert result._face2d is None
         assert len(result._wires) == 0
 
     def test_union_2d_extrude_bounding_box(self):
-        """Cross shape from [rect 50 10, rect 10 40] | extrude 5 should be 50x40x5."""
+        """Cross shape from rect 50x10 + rect 10x40 | extrude 5 should be 50x40x5."""
         wp1 = cq.Workplane("XY").rect(50, 10)
         wp2 = cq.Workplane("XY").rect(10, 40)
         result = wp1.union(wp2).extrude(5)
@@ -767,11 +772,36 @@ class TestUnion2DWireMerge:
         assert abs(bb.zlen - 5) < 0.01
 
     def test_union_2d_no_wires_returns_self(self):
-        """union with empty workplane (no shape, no wires) returns self."""
+        """union with empty workplane (no shape, no wires) is a no-op."""
         wp1 = cq.Workplane("XY").rect(50, 10)
         wp2 = cq.Workplane("XY")
         result = wp1.union(wp2)
         assert len(result._wires) == 1
+        assert result._face2d is None
+
+    def test_diff_2d_produces_annulus(self):
+        """circle 10 - circle 3 should make a face with a hole (annulus)."""
+        outer = cq.Workplane("XY").circle(10)
+        inner = cq.Workplane("XY").circle(3)
+        annulus = outer.cut(inner)
+        assert annulus._face2d is not None
+        # Extruded annulus has a hole, so volume = pi*(10^2 - 3^2)*5
+        result = annulus.extrude(5)
+        bb = _BoundingBox(result._shape)
+        assert abs(bb.xlen - 20) < 0.01
+        assert abs(bb.zlen - 5) < 0.01
+
+    def test_inter_2d_produces_overlap_region(self):
+        """circle 10 ∩ rect 8 8: result is bounded by both."""
+        circ = cq.Workplane("XY").circle(10)
+        rect = cq.Workplane("XY").rect(8, 8)
+        common = circ.intersect(rect)
+        assert common._face2d is not None
+        result = common.extrude(2)
+        bb = _BoundingBox(result._shape)
+        # Intersection of circle r=10 and rect 8x8 is the rect itself
+        assert abs(bb.xlen - 8) < 0.01
+        assert abs(bb.ylen - 8) < 0.01
 
 
 # ---------------------------------------------------------------------------

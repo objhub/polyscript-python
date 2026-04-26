@@ -20,7 +20,7 @@ from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakePrism, BRepPrimAPI_MakeRevol,
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
-from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet, BRepFilletAPI_MakeChamfer
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet, BRepFilletAPI_MakeChamfer, BRepFilletAPI_MakeFillet2d
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections
 from OCP.BRepTools import BRepTools, BRepTools_WireExplorer
 from OCP.BRepBuilderAPI import (
@@ -29,7 +29,7 @@ from OCP.BRepBuilderAPI import (
 )
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Edge, TopoDS_Wire, TopoDS, TopoDS_Builder, TopoDS_Compound
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX, TopAbs_REVERSED
+from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX, TopAbs_WIRE, TopAbs_REVERSED
 from OCP.BRep import BRep_Tool
 from OCP.BRepBndLib import BRepBndLib
 from OCP.Bnd import Bnd_Box
@@ -723,6 +723,10 @@ class Workplane:
             self._plane = plane
         self._shape: TopoDS_Shape | None = None
         self._wires: list[TopoDS_Wire] = []
+        # 2D boolean result face (carries holes that bare wires can't express,
+        # e.g. annulus from `circle 10 | diff (circle 3)`). Consumed by extrude/
+        # revolve and combined with subsequent 2D primitives.
+        self._face2d: TopoDS_Shape | None = None
         self._sketch_points: list[tuple[float, float]] = []  # for moveTo/lineTo
         self._selected_faces: list[TopoDS_Face] = []
         self._selected_edges: list[TopoDS_Edge] = []
@@ -739,6 +743,7 @@ class Workplane:
         wp._plane = self._plane
         wp._shape = self._shape
         wp._wires = list(self._wires)
+        wp._face2d = self._face2d
         wp._sketch_points = list(self._sketch_points)
         wp._selected_faces = list(self._selected_faces)
         wp._selected_edges = list(self._selected_edges)
@@ -1534,9 +1539,67 @@ class Workplane:
 
     # --- Modifiers ---
 
+    def _fillet_2d_wire(self, wire, r):
+        """Round wire corners by `r` using BRepFilletAPI_MakeFillet2d.
+        Returns the original wire on failure (e.g. degenerate, r too large)."""
+        if r <= 0:
+            return wire
+        try:
+            face = _make_face_from_wire(wire)
+            mk = BRepFilletAPI_MakeFillet2d(face)
+            seen: list[gp_Pnt] = []
+            exp = TopExp_Explorer(face, TopAbs_VERTEX)
+            while exp.More():
+                v = TopoDS.Vertex_s(exp.Current())
+                p = BRep_Tool.Pnt_s(v)
+                # Deduplicate by 3D coordinate (OCC creates separate TopoDS_Vertex
+                # per edge; two adjacent edges share a corner but with different
+                # vertex handles).
+                is_dup = any(
+                    abs(p.X() - q.X()) < 1e-7
+                    and abs(p.Y() - q.Y()) < 1e-7
+                    and abs(p.Z() - q.Z()) < 1e-7
+                    for q in seen
+                )
+                if not is_dup:
+                    seen.append(p)
+                    try:
+                        mk.AddFillet(v, float(r))
+                    except Exception:
+                        pass  # skip vertex where fillet is geometrically impossible
+                exp.Next()
+            mk.Build()
+            if not mk.IsDone():
+                return wire
+            result = mk.Shape()
+            return BRepTools.OuterWire_s(TopoDS.Face_s(result))
+        except Exception:
+            return wire
+
     def fillet(self, r):
+        # 2D context: round corners of each wire (and any face2d) via offset trick.
         if self._shape is None:
-            return self
+            if not self._wires and self._face2d is None:
+                return self
+            new_wires = [self._fillet_2d_wire(w, r) for w in self._wires]
+            new_face2d = self._face2d
+            if new_face2d is not None:
+                wires = []
+                exp = TopExp_Explorer(new_face2d, TopAbs_WIRE)
+                while exp.More():
+                    wires.append(TopoDS.Wire_s(exp.Current()))
+                    exp.Next()
+                if wires:
+                    rounded = [_make_face_from_wire(self._fillet_2d_wire(w, r)) for w in wires]
+                    if len(rounded) == 1:
+                        new_face2d = rounded[0]
+                    else:
+                        # Multiple disconnected faces: re-fuse
+                        result = rounded[0]
+                        for f in rounded[1:]:
+                            result = BRepAlgoAPI_Fuse(result, f).Shape()
+                        new_face2d = result
+            return self._copy(_wires=new_wires, _face2d=new_face2d)
         edges = self._selected_edges
         if not edges and self._selected_faces:
             seen = set()
@@ -1735,56 +1798,109 @@ class Workplane:
 
     # --- Boolean ---
 
-    def cut(self, other):
+    def _build_2d_shape(self) -> TopoDS_Shape | None:
+        """Assemble a single 2D shape (face/compound) from this workplane's
+        face2d and/or wires for face-level boolean operations."""
+        shapes: list[TopoDS_Shape] = []
+        if self._face2d is not None:
+            shapes.append(self._face2d)
+        for wire in self._wires:
+            shapes.append(_make_face_from_wire(wire))
+        if not shapes:
+            return None
+        if len(shapes) == 1:
+            return shapes[0]
+        result = shapes[0]
+        for s in shapes[1:]:
+            result = BRepAlgoAPI_Fuse(result, s).Shape()
+        return result
+
+    @staticmethod
+    def _other_state(other):
+        """Extract shape/face2d/wires from a Workplane or raw shape."""
         if isinstance(other, Workplane):
-            other_shape = other._shape
+            return other._shape, other._face2d, list(other._wires), dict(other._color_map)
+        return other, None, [], {}
+
+    def _apply_2d_bool(self, other, op: str):
+        """Apply face-level 2D boolean. op in ('fuse','cut','common').
+        Returns a new workplane with face2d set and wires cleared."""
+        self_shape = self._build_2d_shape()
+        _, other_face2d, other_wires, other_color_map = Workplane._other_state(other)
+        # Inline build of other's 2D shape
+        other_shapes: list[TopoDS_Shape] = []
+        if other_face2d is not None:
+            other_shapes.append(other_face2d)
+        for w in other_wires:
+            other_shapes.append(_make_face_from_wire(w))
+        if not other_shapes:
+            other_shape = None
+        elif len(other_shapes) == 1:
+            other_shape = other_shapes[0]
         else:
-            other_shape = other
-        if self._shape is None or other_shape is None:
+            other_shape = other_shapes[0]
+            for s in other_shapes[1:]:
+                other_shape = BRepAlgoAPI_Fuse(other_shape, s).Shape()
+        if self_shape is None and other_shape is None:
             return self
-        shape = BRepAlgoAPI_Cut(self._shape, other_shape).Shape()
-        return self._copy(_shape=shape)
+        if self_shape is None:
+            if op == 'fuse':
+                wp = self._copy(_face2d=other_shape, _wires=[])
+                wp._color_map = {**self._color_map, **other_color_map}
+                return wp
+            return self
+        if other_shape is None:
+            return self._copy(_face2d=self_shape, _wires=[])
+        if op == 'fuse':
+            result = BRepAlgoAPI_Fuse(self_shape, other_shape).Shape()
+        elif op == 'cut':
+            result = BRepAlgoAPI_Cut(self_shape, other_shape).Shape()
+        else:
+            result = BRepAlgoAPI_Common(self_shape, other_shape).Shape()
+        wp = self._copy(_face2d=result, _wires=[], _shape=None)
+        wp._color_map = {**self._color_map, **other_color_map}
+        return wp
+
+    def cut(self, other):
+        other_shape, other_face2d, other_wires, _ = Workplane._other_state(other)
+        if self._shape is not None and other_shape is not None:
+            shape = BRepAlgoAPI_Cut(self._shape, other_shape).Shape()
+            return self._copy(_shape=shape)
+        if self._shape is None and (other_face2d is not None or other_wires
+                                    or self._face2d is not None or self._wires):
+            return self._apply_2d_bool(other, 'cut')
+        return self
 
     def union(self, other):
-        if isinstance(other, Workplane):
-            other_shape = other._shape
-            other_wires = other._wires
-            other_color_map = other._color_map if isinstance(other, Workplane) else {}
-        else:
-            other_shape = other
-            other_wires = []
-            other_color_map = {}
-        if other_shape is None and not other_wires:
+        other_shape, other_face2d, other_wires, other_color_map = Workplane._other_state(other)
+        # Empty other: no-op
+        if other_shape is None and other_face2d is None and not other_wires:
             return self
-        if self._shape is None and other_shape is None:
-            # Both are 2D (wires only): merge wires for later extrude/revolve
-            wp = self._copy(_wires=list(self._wires) + list(other_wires))
+        if self._shape is not None and other_shape is not None:
+            shape = BRepAlgoAPI_Fuse(self._shape, other_shape).Shape()
+            wp = self._copy(_shape=shape)
             wp._color_map = {**self._color_map, **other_color_map}
             return wp
-        if other_shape is None:
-            return self
-        if self._shape is None:
+        if self._shape is None and other_shape is not None and not (
+                other_face2d or other_wires or self._face2d or self._wires):
             wp = self._copy(_shape=other_shape)
             wp._color_map = {**self._color_map, **other_color_map}
             return wp
-        shape = BRepAlgoAPI_Fuse(self._shape, other_shape).Shape()
-        wp = self._copy(_shape=shape)
-        wp._color_map = {**self._color_map, **other_color_map}
-        return wp
+        if self._shape is None and other_shape is None:
+            return self._apply_2d_bool(other, 'fuse')
+        return self
 
     def intersect(self, other):
-        if isinstance(other, Workplane):
-            other_shape = other._shape
-            other_color_map = other._color_map if isinstance(other, Workplane) else {}
-        else:
-            other_shape = other
-            other_color_map = {}
-        if self._shape is None or other_shape is None:
-            return self
-        shape = BRepAlgoAPI_Common(self._shape, other_shape).Shape()
-        wp = self._copy(_shape=shape)
-        wp._color_map = {**self._color_map, **other_color_map}
-        return wp
+        other_shape, other_face2d, other_wires, other_color_map = Workplane._other_state(other)
+        if self._shape is not None and other_shape is not None:
+            shape = BRepAlgoAPI_Common(self._shape, other_shape).Shape()
+            wp = self._copy(_shape=shape)
+            wp._color_map = {**self._color_map, **other_color_map}
+            return wp
+        if self._shape is None and (other_face2d is not None or other_wires
+                                    or self._face2d is not None or self._wires):
+            return self._apply_2d_bool(other, 'common')
+        return self
 
     # --- 2D → 3D ---
 
@@ -1792,6 +1908,9 @@ class Workplane:
         normal = _plane_normal(self._plane)
         direction = gp_Vec(normal.X() * height, normal.Y() * height, normal.Z() * height)
         new_shape = self._shape
+        if self._face2d is not None:
+            solid = BRepPrimAPI_MakePrism(self._face2d, direction).Shape()
+            new_shape = BRepAlgoAPI_Fuse(new_shape, solid).Shape() if new_shape is not None else solid
         for wire in self._wires:
             face = _make_face_from_wire(wire)
             solid = BRepPrimAPI_MakePrism(face, direction).Shape()
@@ -1799,13 +1918,16 @@ class Workplane:
                 new_shape = BRepAlgoAPI_Fuse(new_shape, solid).Shape()
             else:
                 new_shape = solid
-        return self._copy(_shape=new_shape, _wires=[], _selected_faces=[], _selected_edges=[])
+        return self._copy(_shape=new_shape, _wires=[], _face2d=None, _selected_faces=[], _selected_edges=[])
 
     def revolve(self, degrees, axisStart=None, axisEnd=None):
-        if not self._wires:
+        if not self._wires and self._face2d is None:
             return self
-        wire = self._wires[-1]
-        face = _make_face_from_wire(wire)
+        if self._face2d is not None:
+            face = self._face2d
+        else:
+            wire = self._wires[-1]
+            face = _make_face_from_wire(wire)
         if axisStart is not None and axisEnd is not None:
             ax = gp_Ax1(
                 gp_Pnt(*axisStart),
@@ -1823,7 +1945,7 @@ class Workplane:
         new_shape = solid
         if self._shape is not None:
             new_shape = BRepAlgoAPI_Fuse(self._shape, solid).Shape()
-        return self._copy(_shape=new_shape, _wires=[])
+        return self._copy(_shape=new_shape, _wires=[], _face2d=None)
 
     def sweep(self, profile, isFrenet=False):
         """Sweep ``profile`` along this workplane's wire (the path/spine).

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
 from . import ast_nodes as ast
 from .parser import parse
+from .profile import Profile, extract_profile
 from .transformer import transform
 
 
@@ -280,6 +282,7 @@ class ParamSet:
     """Extracted parameter information from a PolyScript source."""
     params: list[ParamInfo] = field(default_factory=list)
     parameter_sets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    profile: Profile | None = None
 
 
 def _infer_type(value: Any) -> str:
@@ -371,6 +374,9 @@ def extract_params(source: str, json_str: str | None = None) -> ParamSet:
 
     result = ParamSet(params=params)
 
+    # Extract @profile annotation from source
+    result.profile = extract_profile(source)
+
     # Merge JSON metadata if provided
     if json_str:
         _merge_json(result, json_str)
@@ -428,7 +434,12 @@ def _merge_json(param_set: ParamSet, json_str: str) -> None:
 
     # Extract parameter sets (presets)
     presets = data.get("parameterSets", {})
-    if isinstance(presets, dict):
+    if isinstance(presets, dict) and presets:
+        warnings.warn(
+            "JSON parameterSets is deprecated, use @profile annotation instead",
+            DeprecationWarning,
+            stacklevel=3,
+        )
         param_set.parameter_sets = presets
         # Apply default preset values: parameterSets values override defaults
         # But we don't override here -- that happens at evaluation time

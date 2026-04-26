@@ -213,6 +213,47 @@ def _preprocess_with_mapping(source: str) -> tuple[str, dict[int, int]]:
     return "\n".join(orig_lines), line_map
 
 
+def _strip_profile_block(source: str) -> str:
+    """Strip @profile { ... } block from source before Lark parsing.
+
+    The block is replaced with blank lines to preserve line numbering.
+    """
+    m = re.search(r"@profile\s*\{", source)
+    if m is None:
+        return source
+
+    # Find the matching closing brace
+    start = m.start()
+    brace_start = m.end() - 1  # position of '{'
+    depth = 0
+    i = brace_start
+    in_string = False
+    while i < len(source):
+        ch = source[i]
+        if in_string:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    # Replace the block with blank lines (preserve line count)
+                    block = source[start : i + 1]
+                    blank = "\n" * block.count("\n")
+                    return source[:start] + blank + source[i + 1 :]
+        i += 1
+
+    # Unbalanced braces -- return as-is and let profile parser report the error
+    return source
+
+
 def _extract_param_annotations(source: str) -> tuple[str, dict[int, str]]:
     """Extract @param annotation lines from source before Lark parsing.
 
@@ -269,7 +310,8 @@ def parse(source: str):
 
     Also returns extracted @param annotations if any are present.
     """
-    cleaned, annotations = _extract_param_annotations(source)
+    source_no_profile = _strip_profile_block(source)
+    cleaned, annotations = _extract_param_annotations(source_no_profile)
     preprocessed, line_map = _preprocess_with_mapping(cleaned)
     try:
         tree = get_parser().parse(preprocessed)
