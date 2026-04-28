@@ -91,8 +91,8 @@ class TestPathParsing:
         assert isinstance(seg, ast.LinePath)
 
     def test_bezier_segment(self):
-        """wire [(0,0), bezier [(0,0), (5,5), (10,0)]]"""
-        tree = parse("wire [(0,0), bezier [(0,0), (5,5), (10,0)]]")
+        """wire [(0,0), bezier [(5,5), (10,0)]]"""
+        tree = parse("wire [(0,0), bezier [(5,5), (10,0)]]")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert len(stmt.segments) == 1
@@ -100,8 +100,8 @@ class TestPathParsing:
         assert isinstance(seg, ast.BezierPath)
 
     def test_spline_segment(self):
-        """wire [(0,0), spline [(0,0), (5,5), (10,0)]]"""
-        tree = parse("wire [(0,0), spline [(0,0), (5,5), (10,0)]]")
+        """wire [(0,0), spline [(5,5), (10,0)]]"""
+        tree = parse("wire [(0,0), spline [(5,5), (10,0)]]")
         prog = transform(tree)
         stmt = prog.statements[0]
         assert len(stmt.segments) == 1

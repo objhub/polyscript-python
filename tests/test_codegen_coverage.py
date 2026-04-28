@@ -75,7 +75,7 @@ class TestSweep:
     def test_sweep_with_helix(self):
         code = compile_source("circle 2 | sweep (helix 5 20 10)")
         assert '.sweep(' in code
-        assert 'makeHelix' in code
+        assert '.helix(pitch=' in code
 
 
 class TestRotateEdgeCases:

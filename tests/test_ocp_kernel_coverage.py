@@ -246,6 +246,64 @@ class TestWorkplane2D:
         wp = cq.Workplane("XY").spline([(0, 0, 0), (5, 10, 0), (10, 0, 0)])
         assert len(wp._wires) == 1
 
+    def test_bezier(self):
+        wp = cq.Workplane("XY").bezier([(0, 0), (5, 10), (10, 0)])
+        assert len(wp._wires) == 1
+
+    def test_bezier_3d(self):
+        wp = cq.Workplane("XY").bezier([(0, 0, 0), (5, 10, 0), (10, 0, 0)])
+        assert len(wp._wires) == 1
+
+    def test_bezier_too_few_points(self):
+        """bezier with fewer than 2 points should be a no-op."""
+        wp = cq.Workplane("XY").bezier([(0, 0)])
+        assert len(wp._wires) == 0
+
+
+class TestBezierVsSplineBehavior:
+    """Verify that bezier and spline produce geometrically different curves.
+
+    For control/through points [(0,0), (5,10), (10,0)]:
+    - Bezier (quadratic): the curve does NOT pass through (5,10);
+      the max Y is 5.0 (exactly, for a quadratic Bezier).
+    - Spline (B-spline interpolation): the curve passes through ALL points,
+      so max Y is 10.0.
+    """
+
+    def test_bezier_does_not_pass_through_middle_control_point(self):
+        """A quadratic Bezier with control points (0,0),(5,10),(10,0)
+        has max Y = 5.0, which is less than the control point Y of 10."""
+        wp = cq.Workplane("XY").bezier([(0, 0), (5, 10), (10, 0)])
+        wire = wp._wires[0]
+        bb = cq._BoundingBox(wire)
+        # Quadratic Bezier max Y should be exactly 5.0
+        assert bb.ymax < 7.0, f"Bezier max Y should be well below 10, got {bb.ymax}"
+        assert bb.ymax == pytest.approx(5.0, abs=0.1)
+
+    def test_spline_passes_through_all_points(self):
+        """A B-spline interpolation through (0,0),(5,10),(10,0)
+        must pass through Y=10 at the middle point."""
+        wp = cq.Workplane("XY").spline([(0, 0), (5, 10), (10, 0)])
+        wire = wp._wires[0]
+        bb = cq._BoundingBox(wire)
+        # Spline interpolation passes through (5,10), so max Y >= 10
+        assert bb.ymax == pytest.approx(10.0, abs=0.1), (
+            f"Spline max Y should be ~10 (passes through all points), got {bb.ymax}"
+        )
+
+    def test_bezier_and_spline_differ(self):
+        """bezier and spline with the same points produce different bounding boxes."""
+        pts = [(0, 0), (5, 10), (10, 0)]
+        wp_bez = cq.Workplane("XY").bezier(pts)
+        wp_spl = cq.Workplane("XY").spline(pts)
+        bb_bez = cq._BoundingBox(wp_bez._wires[0])
+        bb_spl = cq._BoundingBox(wp_spl._wires[0])
+        # They must differ significantly in Y extent
+        assert abs(bb_bez.ymax - bb_spl.ymax) > 3.0, (
+            f"Bezier ymax={bb_bez.ymax} vs Spline ymax={bb_spl.ymax} — "
+            "they should differ significantly"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Workplane 2D cursor

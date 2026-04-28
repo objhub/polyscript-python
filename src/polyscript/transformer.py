@@ -228,6 +228,9 @@ class PolyTransformer(LarkTransformer):
         args, kwargs = self._split_args(items[0])
         return ast.BezierPath(points=args[0] if args else None)
 
+    def sketch_spline(self, items):
+        return ast.SplinePath(points=ast.ListLit(values=list(items)))
+
     # --- Wire Literal ---
 
     def wire_expr(self, items):

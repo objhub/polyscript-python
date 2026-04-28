@@ -78,12 +78,12 @@ class TestPathPrimitives:
 
     def test_helix(self):
         code = compile_source("helix 2 10 5")
-        assert 'makeHelix' in code
+        assert '.helix(pitch=' in code
         assert 'pitch=2' in code
 
     def test_bezier(self):
         code = compile_source("bezier [(0, 0), (5, 10), (10, 0)]")
-        assert '.spline(' in code
+        assert '.bezier(' in code
 
 
 class TestImplicitUnion:

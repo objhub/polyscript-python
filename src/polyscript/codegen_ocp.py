@@ -599,6 +599,9 @@ class OCPCodegen:
             elif isinstance(seg, ast.BezierPath):
                 pts = self._gen_expr(seg.points)
                 parts.append(f', ("bezier", {pts})')
+            elif isinstance(seg, ast.SplinePath):
+                pts = self._gen_expr(seg.points)
+                parts.append(f', ("spline", {pts})')
         parts.append(")")
         return "".join(parts)
 
@@ -668,11 +671,11 @@ class OCPCodegen:
         pitch = self._gen_expr(node.pitch)
         h = self._gen_expr(node.height)
         r = self._gen_expr(node.radius)
-        return f'cq.Wire.makeHelix(pitch={pitch}, height={h}, radius={r})'
+        return f'cq.Workplane("XY").helix(pitch={pitch}, height={h}, radius={r})'
 
     def _gen_bezier_path(self, node: ast.BezierPath) -> str:
         pts = self._gen_expr(node.points)
-        return f'cq.Workplane("XY").spline({pts})'
+        return f'cq.Workplane("XY").bezier({pts})'
 
     def _gen_spline_path(self, node: ast.SplinePath) -> str:
         pts = self._gen_expr(node.points)

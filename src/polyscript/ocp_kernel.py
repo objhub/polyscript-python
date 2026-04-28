@@ -36,6 +36,7 @@ from OCP.Bnd import Bnd_Box
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.GC import GC_MakeArcOfCircle
+from OCP.Geom import Geom_BezierCurve
 from OCP.GeomAPI import GeomAPI_PointsToBSpline
 from OCP.TopTools import TopTools_ListOfShape
 from OCP.TColgp import TColgp_Array1OfPnt
@@ -317,7 +318,11 @@ def _select_items(items, selector: str, center_fn, direction_fn=None):
 
 def _bounding_box(shape: TopoDS_Shape) -> Bnd_Box:
     bb = Bnd_Box()
-    BRepBndLib.Add_s(shape, bb)
+    # AddOptimal_s computes the tight bounding box (samples curves/surfaces
+    # analytically). Default Add_s returns a looser bbox that overshoots for
+    # swept/BSpline shapes. Tight bbox matches the TS implementation's
+    # AddOptimal call and is what users expect from `bbox`.
+    BRepBndLib.AddOptimal_s(shape, bb)
     return bb
 
 
@@ -604,7 +609,7 @@ class _BoundingBox:
 
     def __init__(self, shape: TopoDS_Shape):
         bb = Bnd_Box()
-        BRepBndLib.Add_s(shape, bb)
+        BRepBndLib.AddOptimal_s(shape, bb)
         xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
         self.xlen = xmax - xmin
         self.ylen = ymax - ymin
@@ -960,7 +965,7 @@ class Workplane:
         return self.rect(w, h)
 
     def spline(self, pts):
-        """Create a spline (bezier) wire."""
+        """Create a B-spline interpolation wire (passes through all points)."""
         points_3d = []
         for p in pts:
             if len(p) == 2:
@@ -977,6 +982,33 @@ class Workplane:
         new_wires.append(wire)
         return self._copy(_wires=new_wires)
 
+    def bezier(self, pts):
+        """Create a true Bezier curve wire (only passes through first/last points)."""
+        points_3d = []
+        for p in pts:
+            if len(p) == 2:
+                points_3d.append(_to_3d(self._plane, p[0], p[1]))
+            else:
+                points_3d.append(gp_Pnt(p[0], p[1], p[2]))
+        if len(points_3d) < 2:
+            return self
+        arr = TColgp_Array1OfPnt(1, len(points_3d))
+        for i, p in enumerate(points_3d):
+            arr.SetValue(i + 1, p)
+        curve = Geom_BezierCurve(arr)
+        edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+        wire = BRepBuilderAPI_MakeWire(edge).Wire()
+        new_wires = list(self._wires)
+        new_wires.append(wire)
+        return self._copy(_wires=new_wires)
+
+    def helix(self, pitch, height, radius):
+        """Append a helical wire (e.g. for sweep spines)."""
+        wire = Wire.makeHelix(pitch=pitch, height=height, radius=radius)
+        new_wires = list(self._wires)
+        new_wires.append(wire)
+        return self._copy(_wires=new_wires)
+
     # --- Sketch ---
 
     def sketch(self, start, *segments):
@@ -989,6 +1021,7 @@ class Workplane:
           - ``("carc_center", (sx, sy), (ex, ey), (cx, cy))`` — center arc
           - ``("carc_radius", (sx, sy), (ex, ey), r)`` — radius arc
           - ``("bezier", [(x1,y1), ...])`` — bezier/spline through control points
+          - ``("spline", [(x1,y1), ...])`` — interpolating spline through points
         The wire is automatically closed and converted to a face.
 
         If a segment's start does not match the current pen position
@@ -1069,6 +1102,23 @@ class Workplane:
                 prev_tangent = _edge_end_tangent(edge)
                 current = p_end
             elif kind == "bezier":
+                pts_2d = seg[1]
+                all_pts = [current]
+                for p in pts_2d:
+                    if len(p) == 2:
+                        all_pts.append(_to_3d(self._plane, p[0] + cx, p[1] + cy))
+                    else:
+                        all_pts.append(gp_Pnt(p[0], p[1], p[2]))
+                if len(all_pts) >= 2:
+                    arr = TColgp_Array1OfPnt(1, len(all_pts))
+                    for i, p in enumerate(all_pts):
+                        arr.SetValue(i + 1, p)
+                    curve = Geom_BezierCurve(arr)
+                    edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+                    builder.Add(edge)
+                    prev_tangent = _edge_end_tangent(edge)
+                    current = all_pts[-1]
+            elif kind == "spline":
                 pts_2d = seg[1]
                 all_pts = [current]
                 for p in pts_2d:
@@ -1231,8 +1281,8 @@ class Workplane:
                 arr = TColgp_Array1OfPnt(1, len(all_pts))
                 for i, p in enumerate(all_pts):
                     arr.SetValue(i + 1, p)
-                bspline = GeomAPI_PointsToBSpline(arr).Curve()
-                edge = BRepBuilderAPI_MakeEdge(bspline).Edge()
+                curve = Geom_BezierCurve(arr)
+                edge = BRepBuilderAPI_MakeEdge(curve).Edge()
                 builder.Add(edge)
                 current = all_pts[-1]
             elif kind == "spline":
@@ -2018,12 +2068,13 @@ class Workplane:
 
         moved_wire = TopoDS.Wire_s(BRepBuilderAPI_Transform(wire, trsf, True).Shape())
 
-        # Prefer MakePipeShell with RoundCorner transition (default Corrected
-        # Frenet mode). This matches the TS implementation and gives correct
-        # shapes for both straight and curved spines including closed paths
-        # (torus etc.). Binormal mode is only needed when PipeShell fails.
+        # ConstantBinormal=+Z: profile stays vertically oriented along the
+        # spine (no twist on helices, springs, threaded-bolt grooves).
+        # Matches the TS implementation. SetMode(gp_Dir) must be called before
+        # SetTransitionMode and Add per OCC's MakePipeShell ordering.
         try:
             pipe_shell = BRepOffsetAPI_MakePipeShell(path_wire)
+            pipe_shell.SetMode(gp_Dir(0, 0, 1))
             pipe_shell.SetTransitionMode(BRepBuilderAPI_RoundCorner)
             pipe_shell.Add(moved_wire)
             pipe_shell.Build()

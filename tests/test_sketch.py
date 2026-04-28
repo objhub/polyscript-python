@@ -122,3 +122,71 @@ class TestSketchExecution:
         )
         assert result is not None
         assert result._shape is not None
+
+
+class TestSketchSplineParsing:
+    """Test that sketch spline syntax parses correctly."""
+
+    def test_parse_sketch_spline(self):
+        """sketch with spline segment should parse to SplinePath."""
+        tree = parse(
+            "sketch [(0, 0), (10, 0), spline [(15, 5), (20, 0)]]"
+        )
+        prog = transform(tree)
+        stmt = prog.statements[0]
+        assert isinstance(stmt, ast.SketchExpr)
+        # segments: (10,0) line, spline
+        assert len(stmt.segments) == 2
+        assert isinstance(stmt.segments[0], ast.TupleLit)
+        assert isinstance(stmt.segments[1], ast.SplinePath)
+
+    def test_parse_sketch_bezier(self):
+        """sketch with bezier segment should parse to BezierPath."""
+        tree = parse(
+            "sketch [(0, 0), (10, 0), bezier [(15, 5), (20, 0)]]"
+        )
+        prog = transform(tree)
+        stmt = prog.statements[0]
+        assert isinstance(stmt, ast.SketchExpr)
+        assert len(stmt.segments) == 2
+        assert isinstance(stmt.segments[1], ast.BezierPath)
+
+
+class TestSketchSplineCodegen:
+    """Test that sketch spline generates correct code."""
+
+    def test_codegen_sketch_spline(self):
+        code = compile_source(
+            "sketch [(0, 0), (10, 0), spline [(15, 5), (20, 0)]]"
+        )
+        assert ".sketch(" in code
+        assert '("spline"' in code
+
+    def test_codegen_sketch_bezier(self):
+        code = compile_source(
+            "sketch [(0, 0), (10, 0), bezier [(15, 5), (20, 0)]]"
+        )
+        assert ".sketch(" in code
+        assert '("bezier"' in code
+
+
+class TestSketchSplineExecution:
+    """Test sketch spline execution with OCP backend."""
+
+    def test_sketch_spline_extrude(self):
+        """Sketch with spline segment + extrude should produce a solid."""
+        from polyscript.executor import execute
+        result = execute(
+            "sketch [(0, 0), (10, 0), spline [(15, 5), (20, 0)], (0, 0)] | extrude 10"
+        )
+        assert result is not None
+        assert result._shape is not None
+
+    def test_sketch_bezier_extrude(self):
+        """Sketch with bezier segment + extrude should produce a solid."""
+        from polyscript.executor import execute
+        result = execute(
+            "sketch [(0, 0), (10, 0), bezier [(15, 5), (20, 0)], (0, 0)] | extrude 10"
+        )
+        assert result is not None
+        assert result._shape is not None

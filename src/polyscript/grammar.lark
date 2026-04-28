@@ -230,6 +230,7 @@ sketch_segment: "arc" tuple tuple tuple                    -> sketch_arc_3p
               | "arc" tuple tuple NAME ":" tuple           -> sketch_arc_center
               | "arc" tuple tuple NAME ":" greedy_val      -> sketch_arc_radius
               | "bezier" greedy_args                       -> sketch_bezier
+              | "spline" "[" _bracket_nl tuple ("," _bracket_nl tuple)* ","? _bracket_nl "]" -> sketch_spline
               | tuple                                      -> sketch_line
 
 wire_segment: "line" tuple tuple                   -> wire_line_seg

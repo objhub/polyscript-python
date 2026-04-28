@@ -222,7 +222,7 @@ class TestNamedArgs:
 
     def test_helix_kwargs(self):
         code = compile_source("helix 5 30 10")
-        assert 'makeHelix(pitch=5, height=30, radius=10)' in code
+        assert 'helix(pitch=5, height=30, radius=10)' in code
 
 
 # ---------------------------------------------------------------------------
