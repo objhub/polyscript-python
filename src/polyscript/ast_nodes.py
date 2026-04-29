@@ -97,6 +97,10 @@ class ListComp(Node):
     expr: Node | None = None
     var: str = ""
     iter_expr: Node | None = None
+    # True when the source was `for x in range(N)` (legacy shorthand).
+    # When True, iter_expr holds N; codegen wraps it in range(...).
+    # When False, iter_expr is iterated directly (must yield a list).
+    is_range: bool = True
 
 
 @dataclass

@@ -1238,7 +1238,9 @@ class OCPCodegen:
         expr = self._gen_expr(node.expr)
         var = node.var
         iter_expr = self._gen_expr(node.iter_expr)
-        return f"[{expr} for {var} in range({iter_expr})]"
+        if node.is_range:
+            return f"[{expr} for {var} in range({iter_expr})]"
+        return f"[{expr} for {var} in ({iter_expr})]"
 
     def _expr_index_access(self, node: ast.IndexAccess) -> str:
         obj = self._gen_expr(node.obj)

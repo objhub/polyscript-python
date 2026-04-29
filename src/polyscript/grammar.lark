@@ -145,6 +145,7 @@ as_clause: "as" DOLLAR_NAME
 
 bracket_expr: "[" _bracket_body "]"
             | "[" _bracket_nl expr "for" (DOLLAR_NAME | NAME) "in" "range" "(" expr ")" _bracket_nl "]" -> list_comp_expr
+            | "[" _bracket_nl expr "for" (DOLLAR_NAME | NAME) "in" expr _bracket_nl "]" -> list_comp_expr_iter
 _bracket_body: _bracket_nl
              | _bracket_nl bracket_items _bracket_nl
 bracket_items: bracket_items "," _bracket_nl expr

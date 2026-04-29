@@ -837,10 +837,13 @@ class PolyTransformer(LarkTransformer):
         return ast.ListLit(values=[i for i in items if i is not None])
 
     def list_comp(self, items):
-        return ast.ListComp(expr=items[0], var=str(items[1]), iter_expr=items[2])
+        return ast.ListComp(expr=items[0], var=str(items[1]), iter_expr=items[2], is_range=True)
 
     def list_comp_expr(self, items):
-        return ast.ListComp(expr=items[0], var=self._strip_dollar(items[1]), iter_expr=items[2])
+        return ast.ListComp(expr=items[0], var=self._strip_dollar(items[1]), iter_expr=items[2], is_range=True)
+
+    def list_comp_expr_iter(self, items):
+        return ast.ListComp(expr=items[0], var=self._strip_dollar(items[1]), iter_expr=items[2], is_range=False)
 
     def index_access(self, items):
         return ast.IndexAccess(obj=items[0], index=items[1])
