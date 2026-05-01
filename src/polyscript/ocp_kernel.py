@@ -21,7 +21,7 @@ from OCP.BRepPrimAPI import (
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet, BRepFilletAPI_MakeChamfer, BRepFilletAPI_MakeFillet2d
-from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid, BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_MakeOffset, BRepOffsetAPI_ThruSections, BRepOffsetAPI_DraftAngle
 from OCP.BRepTools import BRepTools, BRepTools_WireExplorer
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
@@ -42,6 +42,39 @@ from OCP.TopTools import TopTools_ListOfShape
 from OCP.TColgp import TColgp_Array1OfPnt
 from OCP.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve, BRepAdaptor_CompCurve
 from OCP.GeomAbs import GeomAbs_Arc, GeomAbs_Tangent, GeomAbs_Intersection
+
+
+# ---------------------------------------------------------------------------
+# Constants (P9, P10)
+# ---------------------------------------------------------------------------
+
+# Geometric distance tolerance for coincidence checks (e.g. wire closing,
+# degenerate edge detection). Scattered ``1e-6`` literals consolidated here.
+GEOMETRY_TOLERANCE = 1e-6
+
+# Threshold for the dominant axis component of a normalised direction vector
+# when classifying faces/edges by ``+X`` / ``-Z`` selectors. A component
+# above this value means the vector is "mostly" aligned with that axis.
+_AXIS_DOMINANT_THRESHOLD = 0.5
+
+
+def _mesh_deflection() -> float:
+    """Return the mesh tessellation deflection value.
+
+    Controlled by the ``POLY_MESH_DEFLECTION`` environment variable
+    (default 0.1).  Lower values produce finer meshes; higher values
+    produce coarser meshes and faster exports.
+    """
+    import os
+    raw = os.environ.get("POLY_MESH_DEFLECTION")
+    if raw is not None:
+        try:
+            val = float(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +213,13 @@ def _vec_component(v: gp_Vec, axis: str) -> float:
     return {"X": v.X(), "Y": v.Y(), "Z": v.Z()}[axis.upper()]
 
 
+def _to_vec(d) -> gp_Vec:
+    """Convert gp_Dir or gp_Vec to gp_Vec (P5: de-duplication helper)."""
+    if isinstance(d, gp_Dir):
+        return gp_Vec(d.X(), d.Y(), d.Z())
+    return d
+
+
 def _get_faces(shape: TopoDS_Shape) -> list[TopoDS_Face]:
     faces = []
     exp = TopExp_Explorer(shape, TopAbs_FACE)
@@ -205,7 +245,7 @@ def _get_vertices(shape: TopoDS_Shape) -> list:
     while exp.More():
         v = TopoDS.Vertex_s(exp.Current())
         p = BRep_Tool.Pnt_s(v)
-        # Deduplicate vertices at the same location (tolerance 1e-6)
+        # Deduplicate vertices at the same location (GEOMETRY_TOLERANCE)
         key = (round(p.X(), 6), round(p.Y(), 6), round(p.Z(), 6))
         if key not in seen:
             seen.add(key)
@@ -255,22 +295,23 @@ def _select_items(items, selector: str, center_fn, direction_fn=None):
         # Maximum along axis
         vals = [(item, _axis_component(center_fn(item), axis)) for item in items]
         max_val = max(v for _, v in vals)
-        return [item for item, v in vals if abs(v - max_val) < 1e-6]
+        return [item for item, v in vals if abs(v - max_val) < GEOMETRY_TOLERANCE]
 
     elif op == "<":
         # Minimum along axis
         vals = [(item, _axis_component(center_fn(item), axis)) for item in items]
         min_val = min(v for _, v in vals)
-        return [item for item, v in vals if abs(v - min_val) < 1e-6]
+        return [item for item, v in vals if abs(v - min_val) < GEOMETRY_TOLERANCE]
 
     elif op == "|" and direction_fn:
-        # Parallel to axis
+        # Parallel to axis: face normal (or edge direction) is parallel to the axis
         axis_dir = {"X": gp_Vec(1, 0, 0), "Y": gp_Vec(0, 1, 0), "Z": gp_Vec(0, 0, 1)}[axis]
         result = []
         for item in items:
             d = direction_fn(item)
             if d is not None:
-                cross = d.Crossed(axis_dir)
+                d_vec = _to_vec(d)
+                cross = d_vec.Crossed(axis_dir)
                 if cross.Magnitude() < 0.1:
                     result.append(item)
         return result
@@ -282,34 +323,31 @@ def _select_items(items, selector: str, center_fn, direction_fn=None):
         for item in items:
             d = direction_fn(item)
             if d is not None:
-                if isinstance(d, gp_Dir):
-                    d_vec = gp_Vec(d.X(), d.Y(), d.Z())
-                else:
-                    d_vec = d
+                d_vec = _to_vec(d)
                 dot = abs(d_vec.Dot(axis_dir))
                 if dot < 0.1:
                     result.append(item)
         return result
 
     elif op == "+" and direction_fn:
-        # Normal/direction pointing in +axis
+        # Normal/direction pointing in +axis (P10: threshold for dominant axis)
         result = []
         for item in items:
             d = direction_fn(item)
             if d is not None:
-                comp = _vec_component(d, axis) if isinstance(d, gp_Vec) else _dir_component(d, axis)
-                if comp > 0.5:
+                comp = _vec_component(_to_vec(d), axis)
+                if comp > _AXIS_DOMINANT_THRESHOLD:
                     result.append(item)
         return result
 
     elif op == "-" and direction_fn:
-        # Normal/direction pointing in -axis
+        # Normal/direction pointing in -axis (P10: threshold for dominant axis)
         result = []
         for item in items:
             d = direction_fn(item)
             if d is not None:
-                comp = _vec_component(d, axis) if isinstance(d, gp_Vec) else _dir_component(d, axis)
-                if comp < -0.5:
+                comp = _vec_component(_to_vec(d), axis)
+                if comp < -_AXIS_DOMINANT_THRESHOLD:
                     result.append(item)
         return result
 
@@ -601,6 +639,290 @@ def _make_ellipse_wire(rx: float, ry: float, plane: gp_Pln, cx: float = 0, cy: f
 
 
 # ---------------------------------------------------------------------------
+# Text rendering (freetype-py)
+# ---------------------------------------------------------------------------
+
+def _find_font() -> str | None:
+    """Locate a TrueType font file on the system.
+
+    Searches common system font directories for well-known sans-serif fonts,
+    falling back to the first ``.ttf`` file found.  Returns *None* when no
+    font is available.
+    """
+    import glob
+    import os
+
+    preferred = [
+        "DejaVuSans.ttf",
+        "LiberationSans-Regular.ttf",
+        "NotoSans-Regular.ttf",
+        "Roboto-Regular.ttf",
+        "Arial.ttf",
+    ]
+    search_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/System/Library/Fonts",
+        "/Library/Fonts",
+        os.path.expanduser("~/Library/Fonts"),
+        "C:\\Windows\\Fonts",
+    ]
+    for font_name in preferred:
+        for d in search_dirs:
+            matches = glob.glob(os.path.join(d, "**", font_name), recursive=True)
+            if matches:
+                return matches[0]
+    # Fallback: any .ttf
+    for d in search_dirs:
+        if os.path.isdir(d):
+            matches = glob.glob(os.path.join(d, "**", "*.ttf"), recursive=True)
+            if matches:
+                return matches[0]
+    return None
+
+
+# Module-level font cache (populated on first call)
+_FONT_SENTINEL = object()  # unique sentinel value
+_FONT_PATH: str | None | object = _FONT_SENTINEL
+
+
+def _get_font_path() -> str | None:
+    global _FONT_PATH
+    if _FONT_PATH is _FONT_SENTINEL:
+        _FONT_PATH = _find_font()
+    return _FONT_PATH  # type: ignore[return-value]
+
+
+def _text_to_wires(
+    content: str,
+    size: float,
+    plane: gp_Pln,
+) -> list[TopoDS_Wire] | None:
+    """Convert *content* to OCP wires using freetype-py glyph outlines.
+
+    Returns a list of closed ``TopoDS_Wire`` (one per contour, across all
+    glyphs) positioned on *plane*, or ``None`` when freetype-py is not
+    available or no font file can be found.
+
+    The text is rendered at *size* units height, left-aligned, with
+    the baseline at y = 0 and centered about the midpoint of the
+    total advance width (so ``| extrude 5`` produces a centered solid).
+    """
+    try:
+        import freetype  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+
+    font_path = _get_font_path()
+    if font_path is None:
+        return None
+
+    face = freetype.Face(font_path)
+    # Set a large char size for precision; we scale down later.
+    face.set_char_size(48 * 64)
+    units_height = face.size.ascender - face.size.descender
+    if units_height == 0:
+        return None
+    scale = size / units_height
+
+    all_wires: list[TopoDS_Wire] = []
+    x_offset = 0.0
+
+    for char in content:
+        try:
+            face.load_char(char, freetype.FT_LOAD_NO_BITMAP)
+        except Exception as e:
+            # Skip glyphs that cannot be loaded (e.g. CJK without glyph data).
+            # freetype raises various exception types depending on the binding.
+            warnings.warn(f"Cannot load glyph for {char!r}: {e}")
+            x_offset += size * 0.6  # approximate advance for missing glyph
+            continue
+
+        outline = face.glyph.outline
+        points = outline.points
+        tags = outline.tags
+        contour_ends = outline.contours
+        advance = face.glyph.advance.x * scale
+
+        start = 0
+        for end_idx in contour_ends:
+            # Collect contour points
+            contour_pts: list[tuple[float, float]] = []
+            contour_on: list[bool] = []
+            for i in range(start, end_idx + 1):
+                px = points[i][0] * scale + x_offset
+                py = points[i][1] * scale
+                contour_pts.append((px, py))
+                contour_on.append(bool(tags[i] & 1))  # bit 0 = on-curve
+            start = end_idx + 1
+
+            wire = _contour_to_wire(contour_pts, contour_on, plane)
+            if wire is not None:
+                all_wires.append(wire)
+
+        x_offset += advance
+
+    if not all_wires:
+        return None
+
+    # Centre the text horizontally: shift left by half the total advance
+    total_width = x_offset
+    shift_x = -total_width / 2
+    # Also centre vertically relative to ascender/descender
+    asc = face.size.ascender * scale
+    desc = face.size.descender * scale  # negative
+    shift_y = -(asc + desc) / 2
+
+    if abs(shift_x) > 1e-10 or abs(shift_y) > 1e-10:
+        xdir = _plane_xdir(plane)
+        ydir = _plane_draw_ydir(plane)
+        vec = gp_Vec(
+            xdir.X() * shift_x + ydir.X() * shift_y,
+            xdir.Y() * shift_x + ydir.Y() * shift_y,
+            xdir.Z() * shift_x + ydir.Z() * shift_y,
+        )
+        moved: list[TopoDS_Wire] = []
+        for w in all_wires:
+            moved.append(TopoDS.Wire_s(_translate_shape(w, vec)))
+        all_wires = moved
+
+    return all_wires
+
+
+def _contour_to_wire(
+    pts: list[tuple[float, float]],
+    on_curve: list[bool],
+    plane: gp_Pln,
+) -> TopoDS_Wire | None:
+    """Build a closed OCP wire from a TrueType contour.
+
+    Handles on-curve (line) and off-curve (conic/quadratic bezier) points,
+    including implicit on-curve midpoints between consecutive off-curve
+    points as per the TrueType spec.
+    """
+    n = len(pts)
+    if n < 2:
+        return None
+
+    edges: list[TopoDS_Edge] = []
+
+    # Expand the contour into a clean sequence of (on-curve, off-curve*, on-curve) spans.
+    # TrueType rule: two consecutive off-curve points imply an on-curve midpoint.
+    expanded_pts: list[tuple[float, float]] = []
+    expanded_on: list[bool] = []
+
+    for i in range(n):
+        if not on_curve[i] and i > 0 and not expanded_on[-1]:
+            # Insert implicit on-curve midpoint
+            prev = expanded_pts[-1]
+            mid = ((prev[0] + pts[i][0]) / 2, (prev[1] + pts[i][1]) / 2)
+            expanded_pts.append(mid)
+            expanded_on.append(True)
+        expanded_pts.append(pts[i])
+        expanded_on.append(on_curve[i])
+
+    # Handle wrap-around: if first and last are both off-curve
+    if not expanded_on[0] and not expanded_on[-1]:
+        mid = ((expanded_pts[-1][0] + expanded_pts[0][0]) / 2,
+               (expanded_pts[-1][1] + expanded_pts[0][1]) / 2)
+        expanded_pts.append(mid)
+        expanded_on.append(True)
+
+    # Now walk through on-curve anchors, collecting off-curve controls between them
+    # First, find the first on-curve point to start from
+    start_idx = None
+    for i, oc in enumerate(expanded_on):
+        if oc:
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+
+    # Rotate so we start at an on-curve point
+    ep = expanded_pts[start_idx:] + expanded_pts[:start_idx]
+    eo = expanded_on[start_idx:] + expanded_on[:start_idx]
+
+    m = len(ep)
+    i = 0
+    while i < m:
+        if not eo[i]:
+            i += 1
+            continue
+        # i is on-curve. Find next on-curve.
+        j = i + 1
+        controls: list[tuple[float, float]] = []
+        while j < m and not eo[j]:
+            controls.append(ep[j])
+            j += 1
+        if j >= m:
+            # Wrap to close: next on-curve is the first point
+            end_pt = ep[0]
+        else:
+            end_pt = ep[j]
+
+        p_start = ep[i]
+
+        if not controls:
+            # Straight line
+            p1 = _to_3d(plane, p_start[0], p_start[1])
+            p2 = _to_3d(plane, end_pt[0], end_pt[1])
+            if p1.Distance(p2) > 1e-8:
+                try:
+                    edge = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
+                    edges.append(edge)
+                except Exception as e:
+                    warnings.warn(f"Skipping text edge (line): {e}")
+        else:
+            # Quadratic bezier segments (one control point each after expansion)
+            current = p_start
+            for ci, cp in enumerate(controls):
+                seg_end = end_pt if ci == len(controls) - 1 else None
+                if seg_end is None:
+                    # Multiple off-curve in sequence shouldn't happen after expansion,
+                    # but handle gracefully
+                    continue
+                # Convert quadratic bezier to cubic for OCP Geom_BezierCurve
+                p0 = current
+                p1c = cp
+                p2 = seg_end
+                cp1 = (p0[0] + 2 / 3 * (p1c[0] - p0[0]),
+                       p0[1] + 2 / 3 * (p1c[1] - p0[1]))
+                cp2 = (p2[0] + 2 / 3 * (p1c[0] - p2[0]),
+                       p2[1] + 2 / 3 * (p1c[1] - p2[1]))
+                gp0 = _to_3d(plane, p0[0], p0[1])
+                gp1 = _to_3d(plane, cp1[0], cp1[1])
+                gp2 = _to_3d(plane, cp2[0], cp2[1])
+                gp3 = _to_3d(plane, p2[0], p2[1])
+                if gp0.Distance(gp3) < 1e-8:
+                    current = p2
+                    continue
+                try:
+                    arr = TColgp_Array1OfPnt(1, 4)
+                    arr.SetValue(1, gp0)
+                    arr.SetValue(2, gp1)
+                    arr.SetValue(3, gp2)
+                    arr.SetValue(4, gp3)
+                    curve = Geom_BezierCurve(arr)
+                    edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+                    edges.append(edge)
+                except Exception as e:
+                    warnings.warn(f"Skipping text edge (bezier): {e}")
+                current = p2
+
+        i = j if j > i else i + 1
+
+    if not edges:
+        return None
+
+    builder = BRepBuilderAPI_MakeWire()
+    for e in edges:
+        builder.Add(e)
+    if builder.IsDone():
+        return builder.Wire()
+    return None
+
+
+# ---------------------------------------------------------------------------
 # BoundingBox wrapper
 # ---------------------------------------------------------------------------
 
@@ -679,6 +1001,132 @@ class Wire:
 class ExportTypes:
     STL = ".stl"
     STEP = ".step"
+    OFF = ".off"
+    GLTF = ".gltf"
+    GLB = ".glb"
+
+
+def _extract_mesh(shape):
+    """Mesh a shape and extract (vertices, faces) as lists.
+
+    Returns ``(verts, tris)`` where *verts* is a list of ``(x, y, z)`` tuples
+    and *tris* is a list of ``(i0, i1, i2)`` 0-based index tuples.
+    """
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRep import BRep_Tool
+    from OCP.TopLoc import TopLoc_Location
+
+    mesh = BRepMesh_IncrementalMesh(shape, _mesh_deflection())
+    mesh.Perform()
+
+    verts: list[tuple[float, float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    vert_offset = 0
+
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation_s(face, loc)
+        if tri is not None:
+            trsf = loc.Transformation()
+            nb_nodes = tri.NbNodes()
+            for i in range(1, nb_nodes + 1):
+                pt = tri.Node(i).Transformed(trsf)
+                verts.append((pt.X(), pt.Y(), pt.Z()))
+            # Reverse winding if face orientation is reversed
+            reversed_face = face.Orientation() == TopAbs_REVERSED
+            for i in range(1, tri.NbTriangles() + 1):
+                n1, n2, n3 = tri.Triangle(i).Get()
+                # OCP triangles are 1-based; shift to 0-based + global offset
+                i0 = n1 - 1 + vert_offset
+                i1 = n2 - 1 + vert_offset
+                i2 = n3 - 1 + vert_offset
+                if reversed_face:
+                    tris.append((i0, i2, i1))
+                else:
+                    tris.append((i0, i1, i2))
+            vert_offset += nb_nodes
+        explorer.Next()
+
+    return verts, tris
+
+
+def _export_off(wp, path: str) -> None:
+    """Export shape to OFF (Object File Format), optionally with per-face color (COFF)."""
+    shape = wp._shape if isinstance(wp, Workplane) else wp
+    verts, tris = _extract_mesh(shape)
+
+    # Determine per-face colour from Workplane color metadata
+    color = None
+    if isinstance(wp, Workplane) and wp._color is not None:
+        color = wp._color  # (r, g, b, a)
+
+    use_color = color is not None
+    header = "COFF" if use_color else "OFF"
+
+    with open(path, "w") as f:
+        f.write(f"{header}\n")
+        f.write(f"{len(verts)} {len(tris)} 0\n")
+        for x, y, z in verts:
+            f.write(f"{x:.6f} {y:.6f} {z:.6f}\n")
+        for i0, i1, i2 in tris:
+            if use_color:
+                r, g, b, a = color
+                ri, gi, bi, ai = int(r * 255), int(g * 255), int(b * 255), int(a * 255)
+                f.write(f"3 {i0} {i1} {i2} {ri} {gi} {bi} {ai}\n")
+            else:
+                f.write(f"3 {i0} {i1} {i2}\n")
+
+
+def _export_gltf(wp, path: str, binary: bool) -> None:
+    """Export shape to glTF/GLB using OCP's RWGltf_CafWriter with XCAF color."""
+    from OCP.RWGltf import RWGltf_CafWriter
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFApp import XCAFApp_Application
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_ColorType
+    from OCP.TCollection import TCollection_ExtendedString, TCollection_AsciiString
+    from OCP.TColStd import TColStd_IndexedDataMapOfStringString
+    from OCP.Message import Message_ProgressRange
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB, Quantity_ColorRGBA
+
+    shape = wp._shape if isinstance(wp, Workplane) else wp
+
+    # Mesh the shape
+    mesh = BRepMesh_IncrementalMesh(shape, _mesh_deflection())
+    mesh.Perform()
+
+    # Create XDE document
+    app = XCAFApp_Application.GetApplication_s()
+    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+    app.InitDocument(doc)
+
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+
+    # If Workplane has per-part color_map, add each part separately
+    color_map = wp._color_map if isinstance(wp, Workplane) else {}
+    if color_map:
+        for _id, (part_shape, r, g, b, a) in color_map.items():
+            label = shape_tool.AddShape(part_shape)
+            rgba = Quantity_ColorRGBA(Quantity_Color(r, g, b, Quantity_TOC_RGB), a)
+            color_tool.SetColor(label, rgba, XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+    else:
+        label = shape_tool.AddShape(shape)
+        # Apply single color if present
+        if isinstance(wp, Workplane) and wp._color is not None:
+            r, g, b, a = wp._color
+            rgba = Quantity_ColorRGBA(Quantity_Color(r, g, b, Quantity_TOC_RGB), a)
+            color_tool.SetColor(label, rgba, XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+
+    shape_tool.UpdateAssemblies()
+
+    # Write
+    writer = RWGltf_CafWriter(TCollection_AsciiString(path), binary)
+    progress = Message_ProgressRange()
+    metadata = TColStd_IndexedDataMapOfStringString()
+    writer.Perform(doc, metadata, progress)
 
 
 class exporters:
@@ -699,7 +1147,7 @@ class exporters:
         if ext in (".stl", ExportTypes.STL):
             from OCP.StlAPI import StlAPI_Writer
             from OCP.BRepMesh import BRepMesh_IncrementalMesh
-            mesh = BRepMesh_IncrementalMesh(shape, 0.1)
+            mesh = BRepMesh_IncrementalMesh(shape, _mesh_deflection())
             mesh.Perform()
             writer = StlAPI_Writer()
             writer.Write(shape, path)
@@ -710,8 +1158,34 @@ class exporters:
             Interface_Static.SetCVal_s("write.step.schema", "AP203")
             writer.Transfer(shape, STEPControl_AsIs)
             writer.Write(path)
+        elif ext in (".off", ExportTypes.OFF):
+            _export_off(wp, path)
+        elif ext in (".gltf", ExportTypes.GLTF):
+            _export_gltf(wp, path, binary=False)
+        elif ext in (".glb", ExportTypes.GLB):
+            _export_gltf(wp, path, binary=True)
         else:
             raise ValueError(f"Unsupported export format: {ext}")
+
+
+# ---------------------------------------------------------------------------
+# Centered normalisation
+# ---------------------------------------------------------------------------
+
+def _normalize_centered(value, dim: int) -> tuple:
+    """Normalise a ``centered`` argument to a tuple of bools.
+
+    *value* may be:
+    - ``bool``           -> replicated to all *dim* axes
+    - ``tuple``/``list`` -> used as-is (length must match *dim*)
+
+    *dim* is 2 (for 2D primitives) or 3 (for 3D primitives).
+
+    Returns a tuple of *dim* bools, e.g. ``(True, True, True)`` for 3D.
+    """
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    return tuple(value for _ in range(dim))
 
 
 # ---------------------------------------------------------------------------
@@ -766,6 +1240,9 @@ class Workplane:
     # --- 3D Primitives ---
 
     def box(self, w, h, d, centered=(True, True, True)):
+        if w <= 0 or h <= 0 or d <= 0:
+            raise ValueError(f"box dimensions must be positive, got ({w}, {h}, {d})")
+        centered = _normalize_centered(centered, 3)
         # MakeBox creates from origin (0,0,0) to (w,h,d)
         shape = BRepPrimAPI_MakeBox(w, h, d).Shape()
         # Translate to center on each axis where centered is True
@@ -777,6 +1254,11 @@ class Workplane:
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def cylinder(self, r, h, centered=(True, True, True)):
+        if r <= 0:
+            raise ValueError(f"cylinder radius must be positive, got {r}")
+        if h <= 0:
+            raise ValueError(f"cylinder height must be positive, got {h}")
+        centered = _normalize_centered(centered, 3)
         # MakeCylinder creates at origin along Z, base at z=0
         ax2 = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
         shape = BRepPrimAPI_MakeCylinder(ax2, r, h).Shape()
@@ -789,6 +1271,9 @@ class Workplane:
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def sphere(self, r, centered=(True, True, True)):
+        if r <= 0:
+            raise ValueError(f"sphere radius must be positive, got {r}")
+        centered = _normalize_centered(centered, 3)
         # MakeSphere creates centered at origin
         shape = BRepPrimAPI_MakeSphere(r).Shape()
         tx = 0 if centered[0] else r
@@ -799,6 +1284,13 @@ class Workplane:
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def cone(self, r1, r2, h, pnt=None, dir=None, angle=None, centered=(True, True, True)):
+        if r1 < 0 or r2 < 0:
+            raise ValueError(f"cone radii must be non-negative, got ({r1}, {r2})")
+        if r1 == 0 and r2 == 0:
+            raise ValueError("cone requires at least one non-zero radius")
+        if h <= 0:
+            raise ValueError(f"cone height must be positive, got {h}")
+        centered = _normalize_centered(centered, 3)
         p = gp_Pnt(*(pnt if pnt else (0, 0, 0)))
         d = gp_Dir(*(dir if dir else (0, 0, 1)))
         ax2 = gp_Ax2(p, d)
@@ -816,6 +1308,11 @@ class Workplane:
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def torus(self, r1, r2, centered=(True, True, True)):
+        if r1 <= 0:
+            raise ValueError(f"torus major radius must be positive, got {r1}")
+        if r2 <= 0:
+            raise ValueError(f"torus minor radius must be positive, got {r2}")
+        centered = _normalize_centered(centered, 3)
         # MakeTorus creates centered at origin
         shape = BRepPrimAPI_MakeTorus(r1, r2).Shape()
         tx = 0 if centered[0] else r1 + r2
@@ -826,6 +1323,11 @@ class Workplane:
         return self._copy(_shape=shape, _wires=[], _selected_faces=[], _selected_edges=[])
 
     def wedge(self, dx, dy, dz, ltx, centered=(True, True, True)):
+        if dx <= 0 or dy <= 0 or dz <= 0:
+            raise ValueError(f"wedge dimensions must be positive, got ({dx}, {dy}, {dz})")
+        if ltx < 0:
+            raise ValueError(f"wedge top width must be non-negative, got {ltx}")
+        centered = _normalize_centered(centered, 3)
         # MakeWedge creates from origin (0,0,0) to (dx,dy,dz) with top face width ltx
         shape = BRepPrimAPI_MakeWedge(dx, dy, dz, ltx).Shape()
         tx = -dx / 2 if centered[0] else 0
@@ -866,14 +1368,26 @@ class Workplane:
 
     # --- 2D Primitives ---
 
+    @staticmethod
+    def _parse_centered_2d(centered, half_w, half_h):
+        """Compute offset (dx, dy) from a centered flag for 2D primitives.
+
+        *centered* is ``True``/``False`` (both axes) or a ``(bool, bool)`` tuple.
+        *half_w* and *half_h* are the half-extents along each axis (e.g. ``w/2``
+        for rect, ``r`` for circle, ``rx``/``ry`` for ellipse).
+
+        Returns ``(dx, dy)`` displacement: ``(0, 0)`` when centered, shifted by
+        the half-extent when not.
+        """
+        cx, cy = _normalize_centered(centered, 2)
+        dx = 0 if cx else half_w
+        dy = 0 if cy else half_h
+        return dx, dy
+
     def rect(self, w, h, centered=True):
-        # centered can be True/False (both axes) or (bool, bool)
-        if isinstance(centered, (list, tuple)):
-            dx = 0 if centered[0] else w / 2
-            dy = 0 if centered[1] else h / 2
-        else:
-            dx = 0 if centered else w / 2
-            dy = 0 if centered else h / 2
+        if w <= 0 or h <= 0:
+            raise ValueError(f"rect dimensions must be positive, got ({w}, {h})")
+        dx, dy = self._parse_centered_2d(centered, w / 2, h / 2)
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
@@ -882,12 +1396,9 @@ class Workplane:
         return self._copy(_wires=new_wires)
 
     def circle(self, r, centered=(True, True)):
-        if isinstance(centered, (list, tuple)):
-            dx = 0 if centered[0] else r
-            dy = 0 if centered[1] else r
-        else:
-            dx = 0 if centered else r
-            dy = 0 if centered else r
+        if r <= 0:
+            raise ValueError(f"circle radius must be positive, got {r}")
+        dx, dy = self._parse_centered_2d(centered, r, r)
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
@@ -896,12 +1407,9 @@ class Workplane:
         return self._copy(_wires=new_wires)
 
     def ellipse(self, rx, ry, centered=(True, True)):
-        if isinstance(centered, (list, tuple)):
-            dx = 0 if centered[0] else rx
-            dy = 0 if centered[1] else ry
-        else:
-            dx = 0 if centered else rx
-            dy = 0 if centered else ry
+        if rx <= 0 or ry <= 0:
+            raise ValueError(f"ellipse radii must be positive, got ({rx}, {ry})")
+        dx, dy = self._parse_centered_2d(centered, rx, ry)
         offsets = self._get_offsets()
         new_wires = list(self._wires)
         for cx, cy in offsets:
@@ -957,12 +1465,23 @@ class Workplane:
         return self
 
     def text(self, content, size, depth):
-        """Text primitive — approximated as a simple placeholder."""
-        # Full text support requires Font_BRepTextBuilder which may not be available.
-        # For now, create a rectangular placeholder.
-        w = size * len(str(content)) * 0.6
-        h = size
-        return self.rect(w, h)
+        """Text primitive — renders glyphs via freetype-py when available.
+
+        Extracts TrueType glyph outlines (lines + quadratic beziers),
+        converts them to OCP wires, and returns a 2D profile suitable
+        for extrusion.  Falls back to a rectangular placeholder when
+        freetype-py is not installed or no font file is found.
+        """
+        wires = _text_to_wires(str(content), size, self._plane)
+        if wires is None:
+            # Fallback: rectangular placeholder
+            w = size * len(str(content)) * 0.6
+            h = size
+            return self.rect(w, h)
+
+        new_wires = list(self._wires)
+        new_wires.extend(wires)
+        return self._copy(_wires=new_wires)
 
     def spline(self, pts):
         """Create a B-spline interpolation wire (passes through all points)."""
@@ -1025,7 +1544,7 @@ class Workplane:
         The wire is automatically closed and converted to a face.
 
         If a segment's start does not match the current pen position
-        (tolerance 1e-6), an implicit line is inserted to bridge the gap.
+        (tolerance GEOMETRY_TOLERANCE), an implicit line is inserted to bridge the gap.
         """
         cx, cy = self._center_x, self._center_y
         current = _to_3d(self._plane, start[0] + cx, start[1] + cy)
@@ -1037,7 +1556,7 @@ class Workplane:
             if kind == "line":
                 pt = seg[1]
                 end_3d = _to_3d(self._plane, pt[0] + cx, pt[1] + cy)
-                if current.Distance(end_3d) < 1e-6:
+                if current.Distance(end_3d) < GEOMETRY_TOLERANCE:
                     continue  # skip zero-length edge
                 edge = BRepBuilderAPI_MakeEdge(current, end_3d).Edge()
                 builder.Add(edge)
@@ -1047,20 +1566,20 @@ class Workplane:
             elif kind == "arc":
                 start_2d, through_2d, end_2d = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
-                if current.Distance(p_start) > 1e-6:
+                if current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
                     current = p_start
                 p_through = _to_3d(self._plane, through_2d[0] + cx, through_2d[1] + cy)
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
-                if current.Distance(p_end) < 1e-6:
+                if current.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue  # skip zero-length arc
                 # Check collinearity: if points are nearly collinear, fall back to line
                 v1 = gp_Vec(current, p_through)
                 v2 = gp_Vec(current, p_end)
                 cross_mag = v1.Crossed(v2).Magnitude()
-                if cross_mag < 1e-6:
+                if cross_mag < GEOMETRY_TOLERANCE:
                     edge = BRepBuilderAPI_MakeEdge(current, p_end).Edge()
                     prev_tangent = gp_Vec(current, p_end)
                     prev_tangent.Normalize()
@@ -1073,14 +1592,14 @@ class Workplane:
             elif kind == "carc_center":
                 start_2d, end_2d, center_2d = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
-                if current.Distance(p_start) > 1e-6:
+                if current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
                     current = p_start
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
                 p_center = _to_3d(self._plane, center_2d[0] + cx, center_2d[1] + cy)
-                if current.Distance(p_end) < 1e-6:
+                if current.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 edge = _make_center_arc_edge(current, p_end, p_center, self._plane)
                 builder.Add(edge)
@@ -1089,13 +1608,13 @@ class Workplane:
             elif kind == "carc_radius":
                 start_2d, end_2d, radius = seg[1], seg[2], seg[3]
                 p_start = _to_3d(self._plane, start_2d[0] + cx, start_2d[1] + cy)
-                if current.Distance(p_start) > 1e-6:
+                if current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
                     current = p_start
                 p_end = _to_3d(self._plane, end_2d[0] + cx, end_2d[1] + cy)
-                if current.Distance(p_end) < 1e-6:
+                if current.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 edge = _make_radius_arc_edge(current, p_end, float(radius), self._plane)
                 builder.Add(edge)
@@ -1139,7 +1658,7 @@ class Workplane:
         # (skip if already at start point)
         start_3d = _to_3d(self._plane, start[0] + cx, start[1] + cy)
         dist = current.Distance(start_3d)
-        if dist > 1e-6:
+        if dist > GEOMETRY_TOLERANCE:
             closing_edge = BRepBuilderAPI_MakeEdge(current, start_3d).Edge()
             builder.Add(closing_edge)
 
@@ -1171,7 +1690,7 @@ class Workplane:
           - ``("spline", [(p1), (p2), ...])`` — B-spline through points
 
         If a segment's start does not match the current position
-        (tolerance 1e-6), an implicit line is inserted to bridge the gap.
+        (tolerance GEOMETRY_TOLERANCE), an implicit line is inserted to bridge the gap.
         """
         cx, cy = self._center_x, self._center_y
 
@@ -1193,7 +1712,7 @@ class Workplane:
             if kind == "line":
                 pt = seg[1]
                 end_3d = _resolve_pt(pt)
-                if current is not None and current.Distance(end_3d) < 1e-6:
+                if current is not None and current.Distance(end_3d) < GEOMETRY_TOLERANCE:
                     continue  # skip zero-length edge
                 if current is None:
                     current = end_3d
@@ -1204,13 +1723,13 @@ class Workplane:
             elif kind == "line_se":
                 p_start = _resolve_pt(seg[1])
                 p_end = _resolve_pt(seg[2])
-                if current is not None and current.Distance(p_start) > 1e-6:
+                if current is not None and current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
                 if current is None:
                     current = p_start
-                if p_start.Distance(p_end) < 1e-6:
+                if p_start.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 edge = BRepBuilderAPI_MakeEdge(p_start, p_end).Edge()
                 builder.Add(edge)
@@ -1218,7 +1737,7 @@ class Workplane:
             elif kind == "arc":
                 start_pt, through_pt, end_pt = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
-                if current is not None and current.Distance(p_start) > 1e-6:
+                if current is not None and current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
@@ -1226,12 +1745,12 @@ class Workplane:
                     current = p_start
                 p_through = _resolve_pt(through_pt)
                 p_end = _resolve_pt(end_pt)
-                if p_start.Distance(p_end) < 1e-6:
+                if p_start.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 v1 = gp_Vec(p_start, p_through)
                 v2 = gp_Vec(p_start, p_end)
                 cross_mag = v1.Crossed(v2).Magnitude()
-                if cross_mag < 1e-6:
+                if cross_mag < GEOMETRY_TOLERANCE:
                     edge = BRepBuilderAPI_MakeEdge(p_start, p_end).Edge()
                 else:
                     arc_curve = GC_MakeArcOfCircle(p_start, p_through, p_end).Value()
@@ -1241,7 +1760,7 @@ class Workplane:
             elif kind == "carc_center":
                 start_pt, end_pt, center_pt = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
-                if current is not None and current.Distance(p_start) > 1e-6:
+                if current is not None and current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
@@ -1249,7 +1768,7 @@ class Workplane:
                     current = p_start
                 p_end = _resolve_pt(end_pt)
                 p_center = _resolve_pt(center_pt)
-                if p_start.Distance(p_end) < 1e-6:
+                if p_start.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 edge = _make_center_arc_edge(p_start, p_end, p_center, self._plane)
                 builder.Add(edge)
@@ -1257,14 +1776,14 @@ class Workplane:
             elif kind == "carc_radius":
                 start_pt, end_pt, radius = seg[1], seg[2], seg[3]
                 p_start = _resolve_pt(start_pt)
-                if current is not None and current.Distance(p_start) > 1e-6:
+                if current is not None and current.Distance(p_start) > GEOMETRY_TOLERANCE:
                     # Auto-connect with implicit line
                     bridge = BRepBuilderAPI_MakeEdge(current, p_start).Edge()
                     builder.Add(bridge)
                 if current is None:
                     current = p_start
                 p_end = _resolve_pt(end_pt)
-                if p_start.Distance(p_end) < 1e-6:
+                if p_start.Distance(p_end) < GEOMETRY_TOLERANCE:
                     continue
                 edge = _make_radius_arc_edge(p_start, p_end, float(radius), self._plane)
                 builder.Add(edge)
@@ -1549,6 +2068,53 @@ class Workplane:
             )
         return self._copy(_wires=[], _center_x=0, _center_y=0, _points=None)
 
+    def transformed(self, rotate=(0, 0, 0), offset=(0, 0, 0)):
+        """Return a new workplane with the current plane rotated/offset.
+
+        rotate: (rx, ry, rz) in degrees, applied as intrinsic ZYX rotation.
+        offset: (dx, dy, dz) translation applied after rotation.
+        """
+        rx, ry, rz = rotate
+        plane = self._plane
+        origin = _plane_origin(plane)
+        normal = _plane_normal(plane)
+        xdir = _plane_xdir(plane)
+        ydir = _plane_ydir(plane)
+
+        # Apply rotations around the local axes (Z first, then Y, then X)
+        trsf = gp_Trsf()
+        if rz != 0:
+            trsf_rz = gp_Trsf()
+            trsf_rz.SetRotation(gp_Ax1(origin, normal), math.radians(rz))
+            trsf.Multiply(trsf_rz)
+        if ry != 0:
+            # Rotate xdir by current transform to get the new Y axis
+            rotated_xdir = xdir.Transformed(trsf)
+            trsf_ry = gp_Trsf()
+            trsf_ry.SetRotation(gp_Ax1(origin, rotated_xdir), math.radians(ry))
+            trsf.Multiply(trsf_ry)
+        if rx != 0:
+            rotated_ydir = ydir.Transformed(trsf)
+            trsf_rx = gp_Trsf()
+            trsf_rx.SetRotation(gp_Ax1(origin, gp_Dir(rotated_ydir.X(), rotated_ydir.Y(), rotated_ydir.Z())), math.radians(rx))
+            trsf.Multiply(trsf_rx)
+
+        new_normal = normal.Transformed(trsf)
+        new_xdir = xdir.Transformed(trsf)
+        new_origin = origin
+        # Apply offset in the local coordinate system
+        dx, dy, dz = offset
+        if dx != 0 or dy != 0 or dz != 0:
+            ox = origin.X() + dx * new_xdir.X() + dy * _plane_ydir(plane).X() + dz * new_normal.X()
+            oy = origin.Y() + dx * new_xdir.Y() + dy * _plane_ydir(plane).Y() + dz * new_normal.Y()
+            oz = origin.Z() + dx * new_xdir.Z() + dy * _plane_ydir(plane).Z() + dz * new_normal.Z()
+            new_origin = gp_Pnt(ox, oy, oz)
+
+        new_plane = gp_Pln(gp_Ax3(new_origin, new_normal, new_xdir))
+        return self._copy(
+            _plane=new_plane, _wires=[], _center_x=0, _center_y=0, _points=None,
+        )
+
     # --- Place ---
 
     def place(self, profile):
@@ -1616,7 +2182,10 @@ class Workplane:
                     try:
                         mk.AddFillet(v, float(r))
                     except Exception:
-                        pass  # skip vertex where fillet is geometrically impossible
+                        # Per-vertex fallback: skip vertices where fillet is geometrically
+                        # impossible (sharp angle, short edges, etc.). This is expected when
+                        # filleting "all vertices" of a complex wire — silent by design.
+                        pass
                 exp.Next()
             mk.Build()
             if not mk.IsDone():
@@ -1624,6 +2193,7 @@ class Workplane:
             result = mk.Shape()
             return BRepTools.OuterWire_s(TopoDS.Face_s(result))
         except Exception:
+            # 2D fillet construction failed entirely — return original wire unchanged.
             return wire
 
     def fillet(self, r):
@@ -1662,7 +2232,11 @@ class Workplane:
                         edges.append(edge)
         if not edges:
             edges = _get_edges(self._shape)
-        # Try all at once
+        # Try all at once. On failure, silently fall back to per-edge.
+        # Both batch failure and individual edge failures are expected when
+        # filleting "all edges" of a complex shape (some edges are too short
+        # or have sharp angles where the fillet is geometrically impossible).
+        # Only the final "all edges failed" case is a user-visible problem.
         try:
             mk = BRepFilletAPI_MakeFillet(self._shape)
             for edge in edges:
@@ -1671,7 +2245,7 @@ class Workplane:
             return self._copy(_shape=shape, _selected_faces=[], _selected_edges=[])
         except Exception:
             pass
-        # Fallback: apply one edge at a time
+        # Fallback: apply one edge at a time, skipping ones that fail
         shape = self._shape
         for edge in edges:
             try:
@@ -1700,7 +2274,7 @@ class Workplane:
                         edges.append(edge)
         if not edges:
             edges = _get_edges(self._shape)
-        # Try all at once
+        # Try all at once. Same per-edge silent fallback rationale as fillet().
         try:
             mk = BRepFilletAPI_MakeChamfer(self._shape)
             for edge in edges:
@@ -1709,7 +2283,7 @@ class Workplane:
             return self._copy(_shape=shape, _selected_faces=[], _selected_edges=[])
         except Exception:
             pass
-        # Fallback: apply one edge at a time
+        # Fallback: apply one edge at a time, skipping ones that fail
         shape = self._shape
         for edge in edges:
             try:
@@ -1940,6 +2514,54 @@ class Workplane:
             return self._apply_2d_bool(other, 'fuse')
         return self
 
+    @staticmethod
+    def batch_union(workplanes: list) -> "Workplane | None":
+        """Fuse multiple Workplanes using a single OCC BRepAlgoAPI_Fuse call.
+
+        Falls back to sequential union for 2D shapes or when shapes are missing.
+        Returns None if the list is empty.
+        """
+        if not workplanes:
+            return None
+
+        # Filter to valid workplanes
+        wps = [wp for wp in workplanes if isinstance(wp, Workplane)]
+        if not wps:
+            return None
+        if len(wps) == 1:
+            return wps[0]
+
+        # Check if all have 3D shapes -- batch only works for 3D
+        all_3d = all(wp._shape is not None for wp in wps)
+        if not all_3d:
+            # Fallback to sequential union
+            result = wps[0]
+            for wp in wps[1:]:
+                result = result.union(wp)
+            return result
+
+        # Collect shapes for batch fuse
+        shapes = [wp._shape for wp in wps]
+        args = TopTools_ListOfShape()
+        args.Append(shapes[0])
+        tools = TopTools_ListOfShape()
+        for s in shapes[1:]:
+            tools.Append(s)
+        fuser = BRepAlgoAPI_Fuse()
+        fuser.SetArguments(args)
+        fuser.SetTools(tools)
+        fuser.Build()
+        fused_shape = fuser.Shape()
+
+        # Merge color maps from all workplanes
+        merged_color_map: dict = {}
+        for wp in wps:
+            merged_color_map.update(wp._color_map)
+
+        result = wps[0]._copy(_shape=fused_shape, _wires=[], _face2d=None)
+        result._color_map = merged_color_map
+        return result
+
     def intersect(self, other):
         other_shape, other_face2d, other_wires, other_color_map = Workplane._other_state(other)
         if self._shape is not None and other_shape is not None:
@@ -1957,13 +2579,43 @@ class Workplane:
     def extrude(self, height, taper=None):
         normal = _plane_normal(self._plane)
         direction = gp_Vec(normal.X() * height, normal.Y() * height, normal.Z() * height)
+        taper_angle_rad = math.radians(float(taper)) if taper else 0.0
+
+        def _prism_with_optional_draft(base_shape: TopoDS_Shape) -> TopoDS_Shape:
+            prism = BRepPrimAPI_MakePrism(base_shape, direction)
+            prism.Build()
+            if abs(taper_angle_rad) < 1e-10:
+                return prism.Shape()
+            # Apply draft to lateral faces using BRepOffsetAPI_DraftAngle.
+            # Neutral plane = base centroid plane perpendicular to extrude dir.
+            bb = Bnd_Box()
+            BRepBndLib.Add_s(base_shape, bb)
+            xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
+            center = gp_Pnt((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0)
+            pull_dir = gp_Dir(direction.X(), direction.Y(), direction.Z())
+            neutral_plane = gp_Pln(center, pull_dir)
+            drafter = BRepOffsetAPI_DraftAngle(prism.Shape())
+            ex = TopExp_Explorer(base_shape, TopAbs_EDGE)
+            while ex.More():
+                gen_list = prism.Generated(ex.Current())
+                for s in gen_list:
+                    if s.ShapeType() == TopAbs_FACE:
+                        drafter.Add(TopoDS.Face_s(s), pull_dir, taper_angle_rad, neutral_plane)
+                ex.Next()
+            drafter.Build()
+            if not drafter.IsDone():
+                # Draft failed (geometry too narrow for angle, etc.) — fall
+                # back to the straight prism rather than aborting.
+                return prism.Shape()
+            return drafter.Shape()
+
         new_shape = self._shape
         if self._face2d is not None:
-            solid = BRepPrimAPI_MakePrism(self._face2d, direction).Shape()
+            solid = _prism_with_optional_draft(self._face2d)
             new_shape = BRepAlgoAPI_Fuse(new_shape, solid).Shape() if new_shape is not None else solid
         for wire in self._wires:
             face = _make_face_from_wire(wire)
-            solid = BRepPrimAPI_MakePrism(face, direction).Shape()
+            solid = _prism_with_optional_draft(face)
             if new_shape is not None:
                 new_shape = BRepAlgoAPI_Fuse(new_shape, solid).Shape()
             else:
@@ -2085,6 +2737,10 @@ class Workplane:
                 face = _make_face_from_wire(moved_wire)
                 solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
         except Exception:
+            # OCP exceptions (e.g. gp_VectorWithNullMagnitude) inherit directly
+            # from Exception -- cannot narrow further without enumerating all
+            # OCP exception types. Fall back silently to simpler MakePipe,
+            # matching TS implementation (silent catch in wpSweep).
             face = _make_face_from_wire(moved_wire)
             solid = BRepOffsetAPI_MakePipe(path_wire, face).Shape()
         new_shape = solid
@@ -2267,6 +2923,13 @@ class Workplane:
         shape = _translate_shape(self._shape, v) if self._shape is not None else None
         wires = [TopoDS.Wire_s(_translate_shape(w, v)) for w in self._wires] if self._wires else []
         return self._copy(_shape=shape, _wires=wires)
+
+    def floor(self):
+        """Translate the shape so that its bounding box zmin becomes 0."""
+        if self._shape is None:
+            return self._copy()
+        zmin = _BoundingBox(self._shape).zmin
+        return self.translate((0, 0, -zmin))
 
     def translate_points(self, vec):
         """Translate selected points/vertices by a 3D vector.

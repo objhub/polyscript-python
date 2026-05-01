@@ -8,6 +8,10 @@ from pathlib import Path
 from .executor import compile_source, execute, export
 from .errors import PolyScriptError
 
+# Maximum source file size (10 MB) -- prevents OOM from accidentally
+# opening huge files.
+MAX_SOURCE_SIZE = 10 * 1024 * 1024
+
 
 def _parse_cli_value(s: str):
     """Infer a typed value from a CLI string.
@@ -93,7 +97,7 @@ def main():
     parser.add_argument("input", help="Input .poly file")
     parser.add_argument(
         "-o", "--output",
-        help="Output file (.stl, .step, or .py). Default: ./<input>.stl",
+        help="Output file (.stl, .step, .off, .gltf, .glb, or .py). Default: ./<input>.stl",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true",
@@ -109,6 +113,15 @@ def main():
         "--params-file", type=Path,
         help="JSON file with parameter overrides (merged with -D; -D takes precedence)",
     )
+    parser.add_argument(
+        "--emit-python", action="store_true",
+        help="Print generated Python code to stdout (codegen path) without executing",
+    )
+    parser.add_argument(
+        "--mesh-deflection", type=float, default=None,
+        metavar="VALUE",
+        help="Mesh tessellation deflection for STL/OFF/glTF export (default 0.1; higher = coarser/faster)",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -116,9 +129,24 @@ def main():
         print(f"Error: file not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
+    # S6: enforce source file size limit
+    file_size = input_path.stat().st_size
+    if file_size > MAX_SOURCE_SIZE:
+        print(
+            f"Error: source file too large ({file_size} bytes, "
+            f"limit {MAX_SOURCE_SIZE} bytes)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     source = input_path.read_text()
     overrides = _build_overrides(args.defines, args.params_file)
     _warn_unknown_params(source, overrides)
+
+    # Apply mesh deflection via environment variable
+    if args.mesh_deflection is not None:
+        import os
+        os.environ["POLY_MESH_DEFLECTION"] = str(args.mesh_deflection)
 
     # Determine output path
     if args.output:
@@ -126,8 +154,29 @@ def main():
     else:
         output_path = Path(input_path.stem + ".stl")
 
+    # S2: reject relative output paths that escape cwd via ".."
+    if not output_path.is_absolute():
+        try:
+            output_path.resolve().relative_to(Path.cwd().resolve())
+        except ValueError:
+            print(
+                f"Error: output path escapes working directory: {output_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     try:
         source_dir = input_path.parent
+
+        if args.emit_python:
+            code = compile_source(source, source_dir=source_dir, overrides=overrides)
+            # S7: warn that generated code should be reviewed before execution
+            print(
+                "# WARNING: Generated code -- review before executing",
+                file=sys.stderr,
+            )
+            print(code)
+            return
 
         if output_path.suffix == ".py":
             code = compile_source(source, source_dir=source_dir, overrides=overrides)

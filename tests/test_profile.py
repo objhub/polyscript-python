@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import warnings
-
 import pytest
 
 from polyscript.profile import (
@@ -295,38 +292,6 @@ height = 10
         source = "@param 1..100\nwidth = 10"
         result = extract_params(source)
         assert result.profile is None
-
-    def test_json_parameter_sets_deprecation_warning(self):
-        source = "@param 1..100\nval = 10"
-        json_data = json.dumps({
-            "parameterSets": {
-                "small": {"val": 5},
-                "large": {"val": 95},
-            }
-        })
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = extract_params(source, json_str=json_data)
-            # Check that a DeprecationWarning was raised
-            dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(dep_warnings) == 1
-            assert "parameterSets" in str(dep_warnings[0].message)
-            assert "deprecated" in str(dep_warnings[0].message)
-        # parameter_sets should still be populated (backward compat)
-        assert "small" in result.parameter_sets
-
-    def test_json_empty_parameter_sets_no_warning(self):
-        """Empty parameterSets should not trigger warning."""
-        source = "@param 1..100\nval = 10"
-        json_data = json.dumps({
-            "parameterSets": {}
-        })
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            extract_params(source, json_str=json_data)
-            dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(dep_warnings) == 0
-
 
 class TestTrailingComma:
     """Trailing commas should be tolerated (common in hand-written configs)."""

@@ -462,6 +462,11 @@ class Mirror(Node):
 
 
 @dataclass
+class Floor(Node):
+    pass
+
+
+@dataclass
 class ColorOp(Node):
     args: list = field(default_factory=list)
     named_args: dict[str, Any] = field(default_factory=dict)

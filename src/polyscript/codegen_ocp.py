@@ -408,6 +408,7 @@ class OCPCodegen:
         ast.Rotate:             "_gen_rotate",
         ast.Scale:              "_gen_scale",
         ast.Mirror:             "_gen_mirror",
+        ast.Floor:              "_gen_floor",
         ast.Move:               "_gen_move",
         ast.MoveTo:             "_gen_moveto",
         ast.Implicit2DPrimitive: "_gen_implicit_2d",
@@ -477,28 +478,36 @@ class OCPCodegen:
         # Expression (e.g. variable): evaluate at runtime
         return f", centered={self._gen_expr(center_node)}"
 
+    def _gen_primitive_kwargs(self, code: str, node, ndim: int = 3) -> str:
+        """Append ``centered=...`` and handle ``at:``/``origin:`` for a primitive.
+
+        *code* is the partially-built constructor call (without centered).
+        *node* must expose ``.center``, ``.at``, and ``.origin`` attributes.
+        *ndim* controls whether centered expands to a 2- or 3-tuple.
+        """
+        centered = self._gen_centered_arg(node.center, ndim=ndim)
+        code = f"{code}{centered})"
+        return self._gen_at_kwarg(code, node.at, node.origin)
+
     # --- 3D Primitives ---
 
     def _gen_box(self, node: ast.Box) -> str:
         w = self._gen_expr(node.width)
         h = self._gen_expr(node.height)
         d = self._gen_expr(node.depth)
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").box({w}, {h}, {d}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").box({w}, {h}, {d}', node, ndim=3)
 
     def _gen_cylinder(self, node: ast.Cylinder) -> str:
         h = self._gen_expr(node.height)
         r = self._gen_expr(node.radius)
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").cylinder({r}, {h}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").cylinder({r}, {h}', node, ndim=3)
 
     def _gen_sphere(self, node: ast.Sphere) -> str:
         r = self._gen_expr(node.radius)
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").sphere({r}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").sphere({r}', node, ndim=3)
 
     def _gen_cone(self, node: ast.Cone) -> str:
         h = self._gen_expr(node.height)
@@ -511,47 +520,41 @@ class OCPCodegen:
             extras += f", dir={self._gen_expr(node.dir)}"
         if node.angle:
             extras += f", angle={self._gen_expr(node.angle)}"
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").cone({r1}, {r2}, {h}{extras}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").cone({r1}, {r2}, {h}{extras}', node, ndim=3)
 
     def _gen_torus(self, node: ast.Torus) -> str:
         r1 = self._gen_expr(node.r1)
         r2 = self._gen_expr(node.r2)
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").torus({r1}, {r2}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").torus({r1}, {r2}', node, ndim=3)
 
     def _gen_wedge(self, node: ast.Wedge) -> str:
         dx = self._gen_expr(node.dx)
         dy = self._gen_expr(node.dy)
         dz = self._gen_expr(node.dz)
         ltx = self._gen_expr(node.ltx)
-        centered = self._gen_centered_arg(node.center, ndim=3)
-        code = f'cq.Workplane("XY").wedge({dx}, {dy}, {dz}, {ltx}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").wedge({dx}, {dy}, {dz}, {ltx}', node, ndim=3)
 
     # --- 2D Primitives ---
 
     def _gen_rect(self, node: ast.Rect) -> str:
         w = self._gen_expr(node.width)
         h = self._gen_expr(node.height)
-        centered = self._gen_centered_arg(node.center, ndim=2)
-        code = f'cq.Workplane("XY").rect({w}, {h}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").rect({w}, {h}', node, ndim=2)
 
     def _gen_circle(self, node: ast.Circle) -> str:
         r = self._gen_expr(node.radius)
-        centered = self._gen_centered_arg(node.center, ndim=2)
-        code = f'cq.Workplane("XY").circle({r}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").circle({r}', node, ndim=2)
 
     def _gen_ellipse(self, node: ast.Ellipse) -> str:
         rx = self._gen_expr(node.rx)
         ry = self._gen_expr(node.ry)
-        centered = self._gen_centered_arg(node.center, ndim=2)
-        code = f'cq.Workplane("XY").ellipse({rx}, {ry}{centered})'
-        return self._gen_at_kwarg(code, node.at, node.origin)
+        return self._gen_primitive_kwargs(
+            f'cq.Workplane("XY").ellipse({rx}, {ry}', node, ndim=2)
 
     def _gen_polyline(self, node: ast.Polyline) -> str:
         pts = self._gen_expr(node.points)
@@ -577,33 +580,9 @@ class OCPCodegen:
     def _gen_sketch_segments(self, current: str, node: ast.SketchExpr) -> str:
         """Generate sketch(...) call with segments on the given workplane expression."""
         start = self._gen_expr(node.start)
-        parts = [f'{current}.sketch({start}']
-        for seg in node.segments:
-            if isinstance(seg, ast.TupleLit):
-                pt = self._gen_expr(seg)
-                parts.append(f', ("line", {pt})')
-            elif isinstance(seg, ast.ArcPath):
-                start = self._gen_expr(seg.start)
-                through = self._gen_expr(seg.through)
-                end = self._gen_expr(seg.end)
-                parts.append(f', ("arc", {start}, {through}, {end})')
-            elif isinstance(seg, ast.CenterArcPath):
-                start = self._gen_expr(seg.start)
-                end = self._gen_expr(seg.end)
-                if seg.center is not None:
-                    center = self._gen_expr(seg.center)
-                    parts.append(f', ("carc_center", {start}, {end}, {center})')
-                else:
-                    r = self._gen_expr(seg.radius)
-                    parts.append(f', ("carc_radius", {start}, {end}, {r})')
-            elif isinstance(seg, ast.BezierPath):
-                pts = self._gen_expr(seg.points)
-                parts.append(f', ("bezier", {pts})')
-            elif isinstance(seg, ast.SplinePath):
-                pts = self._gen_expr(seg.points)
-                parts.append(f', ("spline", {pts})')
-        parts.append(")")
-        return "".join(parts)
+        return self._gen_sketch_or_wire_segments(
+            current, "sketch", start, node.segments
+        )
 
     # --- Wire Literal ---
 
@@ -613,12 +592,22 @@ class OCPCodegen:
     def _gen_wire_segments(self, current: str, node: ast.WireLiteral) -> str:
         """Generate wire(...) call with segments on the given workplane expression."""
         start = self._gen_expr(node.start) if node.start else "None"
-        parts = [f'{current}.wire({start}']
-        for seg in node.segments:
+        return self._gen_sketch_or_wire_segments(
+            current, "wire", start, node.segments
+        )
+
+    # P6: unified segment code generation for sketch/wire
+    def _gen_sketch_or_wire_segments(
+        self, current: str, method: str, start: str, segments: list
+    ) -> str:
+        """Generate sketch() or wire() call with segments (P6: shared logic)."""
+        parts = [f'{current}.{method}({start}']
+        for seg in segments:
             if isinstance(seg, ast.TupleLit):
                 pt = self._gen_expr(seg)
                 parts.append(f', ("line", {pt})')
             elif isinstance(seg, ast.LinePath):
+                # wire-only: explicit start/end line segment
                 s = self._gen_expr(seg.start)
                 e = self._gen_expr(seg.end)
                 parts.append(f', ("line_se", {s}, {e})')
@@ -1075,6 +1064,11 @@ class OCPCodegen:
         elif ax == "Z":
             return f'{current}.mirror("XY")'
         return f'{current}.mirror("YZ")'
+
+    def _gen_floor(self, current: str, op: ast.Floor) -> str:
+        var = self._new_var()
+        self._emit(f'{var}_zmin = {current}.val().BoundingBox().zmin')
+        return f'{current}.translate((0, 0, -{var}_zmin))'
 
     def _gen_move(self, current: str, op: ast.Move) -> str:
         if isinstance(op.offset, ast.TupleLit) and len(op.offset.values) >= 2:

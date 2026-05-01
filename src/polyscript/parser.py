@@ -6,9 +6,47 @@ import sys
 from pathlib import Path
 import re
 
-from lark import Lark, exceptions as lark_exceptions
+from lark import Lark, Token, exceptions as lark_exceptions
 
 from .errors import ParseError
+
+
+class _SpaceAwareMinusPostLex:
+    """PostLex processor: converts MINUS to SPACED_MINUS when whitespace follows.
+
+    This enables whitespace-aware binary subtraction in greedy argument contexts:
+    - ``extrude h - 5`` parses as ``extrude(h - 5)`` (SPACED_MINUS = binary sub)
+    - ``box 10 -5 10`` parses as ``box(10, -5, 10)`` (MINUS = unary neg)
+
+    The processor uses single-token lookahead to determine whether a ``-`` has
+    whitespace after it.  It must iterate lazily (no ``list(stream)``) because
+    the LALR contextual lexer yields tokens on demand.
+    """
+
+    # LALR(1) needs to know which extra tokens may appear
+    always_accept = frozenset({"_SPACED_MINUS"})
+
+    def process(self, stream):
+        held = None  # buffered _MINUS token awaiting next-token inspection
+        for tok in stream:
+            if held is not None:
+                # We buffered a _MINUS; inspect the current token to decide
+                if (
+                    tok.column is not None
+                    and held.end_column is not None
+                    and tok.column > held.end_column
+                ):
+                    # Whitespace between '-' and the next token -> binary sub
+                    held = Token.new_borrow_pos("_SPACED_MINUS", held, held)
+                yield held
+                held = None
+            if tok.type == "_MINUS":
+                held = tok  # buffer it to check spacing on next token
+            else:
+                yield tok
+        if held is not None:
+            # Trailing _MINUS at end of input
+            yield held
 
 if getattr(sys, 'frozen', False):
     _GRAMMAR_PATH = Path(sys._MEIPASS) / "polyscript" / "grammar.lark"
@@ -292,6 +330,8 @@ def _get_parser() -> Lark:
         grammar_text,
         parser="lalr",
         propagate_positions=True,
+        postlex=_SpaceAwareMinusPostLex(),
+        cache=True,
     )
 
 

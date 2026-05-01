@@ -219,3 +219,63 @@ class TestGreedySumLevel:
         """chamfer 1 + 1 should be chamfer(2)."""
         result = execute("box 80 60 10 | edges =Z | chamfer 1 + 1")
         assert result._shape is not None
+
+    # --- C2: whitespace-aware binary subtraction in greedy context ---
+
+    def test_extrude_with_subtraction(self):
+        """extrude h - 5 should be extrude(h-5) (1 arg, binary sub)."""
+        code = compile_source("h = 10\nrect 10 5 | extrude h - 5")
+        assert ".extrude((h - 5))" in code
+
+    def test_extrude_with_addition(self):
+        """extrude h + 5 should be extrude(h+5) (1 arg, binary add)."""
+        code = compile_source("h = 10\nrect 10 5 | extrude h + 5")
+        assert ".extrude((h + 5))" in code
+
+    def test_box_negative_arg_preserved(self):
+        """box 10 -5 10 should be box(10, -5, 10) (3 args, no regression).
+
+        Codegen preserves the negative argument. At runtime, the box
+        validation rejects non-positive dimensions with a clear error.
+        """
+        code = compile_source("box 10 -5 10")
+        assert ".box(10, (-5), 10)" in code or ".box(10, -5, 10)" in code
+
+    def test_box_negative_arg_runtime_error(self):
+        """box 10 -5 10 should raise at runtime (dimensions must be positive)."""
+        from polyscript.errors import ExecutionError
+        with pytest.raises(ExecutionError, match="box dimensions must be positive"):
+            execute("box 10 -5 10")
+
+    def test_cylinder_binary_sub_multiarg(self):
+        """cylinder r1 + 1 r1 - 2 should be cylinder(r1+1, r1-2) (2 args)."""
+        code = compile_source("r1 = 5\ncylinder r1 + 1 r1 - 2")
+        assert ".cylinder((r1 + 1), (r1 - 2))" in code
+
+    def test_fillet_binary_subtraction_codegen(self):
+        """fillet 4 - 1 should generate fillet((4 - 1)) not fillet(4)."""
+        code = compile_source("box 80 60 10 | fillet 4 - 1")
+        assert ".fillet((4 - 1))" in code
+
+    def test_unary_minus_no_space(self):
+        """fillet -1 (no space after -) should parse as fillet(-1)."""
+        tree = parse("box 10 10 10 | fillet -1")
+        prog = transform(tree)
+        pipeline = prog.statements[0]
+        fillet_node = pipeline.operations[0]
+        assert isinstance(fillet_node, ast.Fillet)
+        assert isinstance(fillet_node.radius, ast.UnaryNeg)
+
+    def test_func_call_binary_sub(self):
+        """f(-a) preserves unary neg with parens in func call expr."""
+        code = compile_source("a = 5\nbox (-a) 1 1")
+        assert "(-a)" in code
+
+    def test_box_arg_with_subtraction(self):
+        """box 10 8 - 3 20 should be box(10, 5, 20)."""
+        result = execute("box 10 8 - 3 20")
+        assert result._shape is not None
+        bb = result.val().BoundingBox()
+        assert abs(bb.xlen - 10) < 0.5
+        assert abs(bb.ylen - 5) < 0.5
+        assert abs(bb.zlen - 20) < 0.5

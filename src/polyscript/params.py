@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import re
-import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -272,6 +270,7 @@ class ParamInfo:
     max: float | int | None = None
     step: float | int | None = None
     desc: str | None = None
+    label: str | None = None
     choices: list[Any] | None = None
     group: str = "General"
     hidden: bool = False
@@ -281,7 +280,6 @@ class ParamInfo:
 class ParamSet:
     """Extracted parameter information from a PolyScript source."""
     params: list[ParamInfo] = field(default_factory=list)
-    parameter_sets: dict[str, dict[str, Any]] = field(default_factory=dict)
     profile: Profile | None = None
 
 
@@ -330,12 +328,11 @@ def _eval_default(node: ast.Node | None) -> Any:
     return None
 
 
-def extract_params(source: str, json_str: str | None = None) -> ParamSet:
+def extract_params(source: str) -> ParamSet:
     """Extract parameter information from PolyScript source.
 
     Args:
         source: PolyScript source code.
-        json_str: Optional JSON string with additional metadata / presets.
 
     Returns:
         ParamSet with extracted parameter information.
@@ -366,6 +363,7 @@ def extract_params(source: str, json_str: str | None = None) -> ParamSet:
                 max=opts.get("max"),
                 step=opts.get("step"),
                 desc=opts.get("desc"),
+                label=opts.get("label"),
                 choices=opts.get("choices"),
                 group=opts.get("group", "General"),
                 hidden=opts.get("hidden", False),
@@ -377,69 +375,4 @@ def extract_params(source: str, json_str: str | None = None) -> ParamSet:
     # Extract @profile annotation from source
     result.profile = extract_profile(source)
 
-    # Merge JSON metadata if provided
-    if json_str:
-        _merge_json(result, json_str)
-
     return result
-
-
-def _merge_json(param_set: ParamSet, json_str: str) -> None:
-    """Merge JSON metadata into the param set.
-
-    Rules:
-    - Variable existence: source is authoritative (JSON-only params are ignored)
-    - Metadata: JSON overrides source
-    - Default values: parameterSets > JSON default > source declaration
-    """
-    data = json.loads(json_str)
-
-    # Build lookup for quick access
-    param_map = {p.name: p for p in param_set.params}
-
-    # Merge parameter metadata
-    json_params = data.get("params", data.get("parameters", {}))
-    if isinstance(json_params, dict):
-        for name, meta in json_params.items():
-            if name not in param_map:
-                continue  # source is authoritative
-            p = param_map[name]
-            if "min" in meta:
-                p.min = meta["min"]
-            if "max" in meta:
-                p.max = meta["max"]
-            if "step" in meta:
-                p.step = meta["step"]
-            if "desc" in meta:
-                p.desc = meta["desc"]
-            if "choices" in meta:
-                p.choices = meta["choices"]
-            if "group" in meta:
-                p.group = meta["group"]
-            if "type" in meta:
-                p.type = meta["type"]
-            if "hidden" in meta:
-                p.hidden = meta["hidden"]
-            if "default" in meta:
-                p.default = meta["default"]
-    elif isinstance(json_params, list):
-        for meta in json_params:
-            name = meta.get("name")
-            if not name or name not in param_map:
-                continue
-            p = param_map[name]
-            for key in ("min", "max", "step", "desc", "choices", "group", "type", "hidden", "default"):
-                if key in meta:
-                    setattr(p, key, meta[key])
-
-    # Extract parameter sets (presets)
-    presets = data.get("parameterSets", {})
-    if isinstance(presets, dict) and presets:
-        warnings.warn(
-            "JSON parameterSets is deprecated, use @profile annotation instead",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        param_set.parameter_sets = presets
-        # Apply default preset values: parameterSets values override defaults
-        # But we don't override here -- that happens at evaluation time

@@ -7,7 +7,7 @@ from polyscript.ocp_kernel import (
     _make_plane, _face_center, _face_normal, _edge_center, _edge_direction,
     _get_faces, _get_edges, _get_vertices, _select_items,
     _bb_dims, _BoundingBox, _ValWrapper, Wire, exporters, ExportTypes,
-    Workplane, shape_info,
+    Workplane, shape_info, _normalize_centered,
 )
 
 
@@ -236,7 +236,9 @@ class TestWorkplane2D:
 
     def test_text(self):
         wp = cq.Workplane("XY").text("Hello", 10, 1)
-        assert len(wp._wires) == 1
+        # With freetype-py, text produces multiple wires (one per glyph contour).
+        # Without freetype-py, it falls back to a single rectangular placeholder.
+        assert len(wp._wires) >= 1
 
     def test_spline(self):
         wp = cq.Workplane("XY").spline([(0, 0), (5, 10), (10, 0)])
@@ -945,3 +947,82 @@ class TestShapeInfo:
         expected_volume = math.pi * 25 * 10
         assert abs(info["volume"] - expected_volume) < 1.0
         assert info["topology"]["faces"] == 3
+
+
+# ---------------------------------------------------------------------------
+# M7: _normalize_centered and scalar centered on 3D/2D primitives
+# ---------------------------------------------------------------------------
+
+class TestNormalizeCentered:
+    """_normalize_centered converts scalar/tuple to uniform tuple of bools."""
+
+    def test_bool_true_3d(self):
+        assert _normalize_centered(True, 3) == (True, True, True)
+
+    def test_bool_false_3d(self):
+        assert _normalize_centered(False, 3) == (False, False, False)
+
+    def test_bool_true_2d(self):
+        assert _normalize_centered(True, 2) == (True, True)
+
+    def test_bool_false_2d(self):
+        assert _normalize_centered(False, 2) == (False, False)
+
+    def test_tuple_passthrough_3d(self):
+        assert _normalize_centered((True, False, True), 3) == (True, False, True)
+
+    def test_tuple_passthrough_2d(self):
+        assert _normalize_centered((False, True), 2) == (False, True)
+
+    def test_list_passthrough(self):
+        assert _normalize_centered([True, False, True], 3) == (True, False, True)
+
+
+class TestScalarCentered3D:
+    """3D primitives accept scalar bool for centered= (M7 improvement)."""
+
+    def test_box_scalar_false(self):
+        wp = cq.Workplane("XY").box(10, 20, 30, centered=False)
+        bb = wp.val().BoundingBox()
+        assert bb.xmin >= -0.01
+        assert bb.ymin >= -0.01
+        assert bb.zmin >= -0.01
+
+    def test_box_scalar_true(self):
+        wp = cq.Workplane("XY").box(10, 20, 30, centered=True)
+        bb = wp.val().BoundingBox()
+        assert abs(bb.xmin + 5) < 0.01
+        assert abs(bb.ymin + 10) < 0.01
+        assert abs(bb.zmin + 15) < 0.01
+
+    def test_cylinder_scalar_false(self):
+        wp = cq.Workplane("XY").cylinder(5, 10, centered=False)
+        bb = wp.val().BoundingBox()
+        assert bb.zmin >= -0.01
+
+    def test_sphere_scalar_false(self):
+        wp = cq.Workplane("XY").sphere(5, centered=False)
+        bb = wp.val().BoundingBox()
+        assert bb.xmin >= -0.01
+        assert bb.ymin >= -0.01
+        assert bb.zmin >= -0.01
+
+
+class TestScalarCentered2D:
+    """2D primitives accept both scalar and tuple for centered= (M7)."""
+
+    def test_rect_scalar_false(self):
+        wp = cq.Workplane("XY").rect(10, 20, centered=False)
+        assert len(wp._wires) == 1
+
+    def test_rect_tuple(self):
+        wp = cq.Workplane("XY").rect(10, 20, centered=(False, True))
+        assert len(wp._wires) == 1
+
+    def test_circle_scalar_false(self):
+        wp = cq.Workplane("XY").circle(5, centered=False)
+        assert len(wp._wires) == 1
+
+    def test_ellipse_scalar_false(self):
+        wp = cq.Workplane("XY").ellipse(10, 5, centered=False)
+        assert len(wp._wires) == 1

@@ -1,6 +1,5 @@
 """Tests for @param annotation feature."""
 
-import json
 import pytest
 
 from polyscript.params import (
@@ -248,69 +247,6 @@ class TestExtractParams:
 
 
 # ---------------------------------------------------------------------------
-# JSON merge
-# ---------------------------------------------------------------------------
-
-class TestJSONMerge:
-    def test_json_overrides_metadata(self):
-        source = '@param min:1 max:100\n$thickness = 2.0'
-        json_data = json.dumps({
-            "params": {
-                "thickness": {
-                    "min": 0.5,
-                    "max": 200,
-                    "desc": "From JSON",
-                }
-            }
-        })
-        result = extract_params(source, json_str=json_data)
-        p = result.params[0]
-        assert p.min == 0.5  # JSON overrides source
-        assert p.max == 200
-        assert p.desc == "From JSON"
-
-    def test_json_default_override(self):
-        source = '@param 1..100\n$val = 10'
-        json_data = json.dumps({
-            "params": {"val": {"default": 42}}
-        })
-        result = extract_params(source, json_str=json_data)
-        assert result.params[0].default == 42
-
-    def test_json_ignores_unknown_params(self):
-        source = '@param 1..100\n$val = 10'
-        json_data = json.dumps({
-            "params": {"nonexistent": {"min": 0, "max": 999}}
-        })
-        result = extract_params(source, json_str=json_data)
-        assert len(result.params) == 1
-        assert result.params[0].name == "val"
-
-    def test_json_parameter_sets(self):
-        source = '@param 1..100\n$val = 10'
-        json_data = json.dumps({
-            "parameterSets": {
-                "small": {"val": 5},
-                "large": {"val": 95},
-            }
-        })
-        result = extract_params(source, json_str=json_data)
-        assert "small" in result.parameter_sets
-        assert result.parameter_sets["small"]["val"] == 5
-        assert result.parameter_sets["large"]["val"] == 95
-
-    def test_json_params_as_list(self):
-        source = '@param 1..100\n$val = 10'
-        json_data = json.dumps({
-            "params": [
-                {"name": "val", "desc": "From list format"}
-            ]
-        })
-        result = extract_params(source, json_str=json_data)
-        assert result.params[0].desc == "From list format"
-
-
-# ---------------------------------------------------------------------------
 # Overrides in compile_source
 # ---------------------------------------------------------------------------
 
@@ -483,12 +419,22 @@ class TestParamLabelOption:
         assert p.default == 80
         assert p.min == 1
         assert p.max == 200
-        # label is stored in the annotation options but not in ParamInfo fields
-        # Verify it appears in the parsed annotation
-        tree = parse(source)
-        program = transform(tree)
-        assignments = [s for s in program.statements if isinstance(s, ast.Assignment)]
-        assert assignments[0].annotation.options["label"] == "Width"
+        assert p.label == "Width"
+
+    def test_label_with_choices(self):
+        source = '@param choices:[5, 10, 20] label:"Box size"\n$size = 10'
+        result = extract_params(source)
+        assert len(result.params) == 1
+        p = result.params[0]
+        assert p.name == "size"
+        assert p.default == 10
+        assert p.label == "Box size"
+        assert p.choices == [5, 10, 20]
+
+    def test_label_none_when_absent(self):
+        source = '@param 1..100\n$val = 50'
+        result = extract_params(source)
+        assert result.params[0].label is None
 
 
 # ---------------------------------------------------------------------------

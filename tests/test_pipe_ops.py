@@ -707,12 +707,19 @@ class TestLoftExecution:
 
 
 class TestExtrudeDraftExecution:
-    """Test that extrude with draft:N actually executes successfully.
+    """Test that extrude with draft:N produces a tapered solid.
 
-    Note: the current ocp_kernel.extrude() accepts taper= but does not
-    apply it (straight extrusion). We test that the execution does not
-    crash and produces a valid solid.
+    The implementation uses BRepOffsetAPI_DraftAngle on prism lateral faces.
+    Positive draft angle tapers inward (volume decreases compared to straight).
     """
+
+    @staticmethod
+    def _volume(shape):
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(shape, props)
+        return props.Mass()
 
     def test_extrude_draft_basic(self):
         """rect | extrude 15 draft:5 produces a valid solid."""
@@ -725,12 +732,33 @@ class TestExtrudeDraftExecution:
         assert bb.xlen >= 30
         assert bb.ylen >= 20
 
+    def test_extrude_draft_changes_volume(self):
+        """Taper extrude should produce a different volume than straight extrude."""
+        straight = execute("rect 60 40 | extrude 15")
+        tapered = execute("rect 60 40 | extrude 15 draft:10")
+        vol_straight = self._volume(straight._shape)
+        vol_tapered = self._volume(tapered._shape)
+        # Tapered volume must differ from straight
+        assert abs(vol_tapered - vol_straight) / vol_straight > 0.05, (
+            f"Taper did not change volume: straight={vol_straight:.2f}, tapered={vol_tapered:.2f}"
+        )
+
     def test_extrude_draft_circle(self):
         """circle | extrude 10 draft:3 produces a valid solid."""
         result = execute("circle 20 | extrude 10 draft:3")
         assert result._shape is not None
         bb = result.val().BoundingBox()
         assert abs(bb.zlen - 10) < 0.5
+
+    def test_extrude_draft_circle_changes_volume(self):
+        """Tapered circle extrude should differ from straight cylinder."""
+        straight = execute("circle 20 | extrude 10")
+        tapered = execute("circle 20 | extrude 10 draft:5")
+        vol_straight = self._volume(straight._shape)
+        vol_tapered = self._volume(tapered._shape)
+        assert abs(vol_tapered - vol_straight) / vol_straight > 0.01, (
+            f"Taper did not change volume: straight={vol_straight:.2f}, tapered={vol_tapered:.2f}"
+        )
 
     def test_extrude_draft_on_face(self):
         """Extrude with draft on a selected face."""
@@ -739,6 +767,14 @@ class TestExtrudeDraftExecution:
         bb = result.val().BoundingBox()
         # The extruded circle on top should make height > 10
         assert bb.zlen > 10
+
+    def test_extrude_draft_zero_equals_straight(self):
+        """draft:0 should produce the same result as no draft."""
+        straight = execute("rect 40 30 | extrude 10")
+        zero_draft = execute("rect 40 30 | extrude 10 draft:0")
+        vol_straight = self._volume(straight._shape)
+        vol_zero = self._volume(zero_draft._shape)
+        assert abs(vol_straight - vol_zero) < 0.01
 
 
 class TestMirrorAST:

@@ -1,6 +1,6 @@
 # PolyScript
 
-A pipe-based parametric CAD language built on OpenCascade that exports STL/STEP files.
+A pipe-based parametric CAD language built on OpenCascade that exports STL/STEP/glTF/OFF files.
 
 ```
 box 80 60 10
@@ -16,7 +16,7 @@ box 80 60 10
 - **Functions** -- define reusable parametric shapes with `def`
 - **Import** -- split libraries into separate `.poly` files
 - **Expressions** -- arithmetic, comparisons, `if/then/else`, list comprehensions
-- **Export** -- STL, STEP, or Python code
+- **Export** -- STL, STEP, glTF/GLB, OFF, or Python code
 
 ## Download
 
@@ -36,6 +36,9 @@ Build:
 ```bash
 poly hello.poly                     # → hello.stl (default)
 poly hello.poly -o hello.step       # export STEP
+poly hello.poly -o hello.glb        # export GLB (binary glTF, Web-ready)
+poly hello.poly -o hello.gltf       # export glTF (JSON)
+poly hello.poly -o hello.off        # export OFF
 poly hello.poly -o hello.py         # export Python code
 ```
 
@@ -121,9 +124,15 @@ poly <input.poly> [-o <output>]
 |------|-------------|
 | `-o file.stl` | Export as STL |
 | `-o file.step` | Export as STEP |
+| `-o file.glb` | Export as GLB (binary glTF, with color) |
+| `-o file.gltf` | Export as glTF (JSON, with color) |
+| `-o file.off` | Export as OFF (COFF when colored) |
 | `-o file.py` | Export as Python code |
+| `--mesh-deflection VALUE` | Mesh tessellation deflection (default 0.1; higher = coarser mesh, smaller file) |
 
 Default output is `<input>.stl`.
+
+The `POLY_MESH_DEFLECTION` environment variable can also be used to set the deflection globally.
 
 ## License
 

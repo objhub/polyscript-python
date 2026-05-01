@@ -561,6 +561,9 @@ class PolyTransformer(LarkTransformer):
         axis = axis_val.value if isinstance(axis_val, ast.StringLit) else None
         return ast.Mirror(axis=axis)
 
+    def floor_op(self, items):
+        return ast.Floor()
+
     def move_op(self, items):
         args, kwargs = self._split_args(items[0])
         origin = kwargs.get("origin")
